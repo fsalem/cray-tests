@@ -5,6 +5,8 @@ bin_PROGRAMS = \
 	performance/multi-node/rdm_mbw_mr \
 	performance/multi-node/rdm_pingpong \
 	performance/multi-node/rdm_one_sided \
+	performance/multi-node/multi_rdm_one_sided \
+	performance/multi-node/multi_rdm_one_sided_read \
 	performance/multi-node/random_access \
 	performance/single-node/lock_tests
 
@@ -30,6 +32,14 @@ performance_multi_node_rdm_pingpong_LDADD = libcraytests.la
 performance_multi_node_rdm_one_sided_SOURCES = \
 	performance/multi-node/rdm_one_sided.c
 performance_multi_node_rdm_one_sided_LDADD = libcraytests.la
+
+performance_multi_node_multi_rdm_one_sided_SOURCES = \
+	performance/multi-node/multi_rdm_one_sided.c
+performance_multi_node_multi_rdm_one_sided_LDADD = libcraytests.la
+
+performance_multi_node_multi_rdm_one_sided_read_SOURCES = \
+	performance/multi-node/multi_rdm_one_sided_read.c
+performance_multi_node_multi_rdm_one_sided_read_LDADD = libcraytests.la
 
 performance_multi_node_random_access_SOURCES = \
         performance/multi-node/random_access.c
