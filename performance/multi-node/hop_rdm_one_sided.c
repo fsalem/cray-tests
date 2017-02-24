@@ -460,8 +460,11 @@ void *thread_fn(void *data) {
 
 	if (myid < num_sender_procs) { // only senders
 		t_start = get_time_usec();
-		for (i = 0; i < loop + skip; i++) {
-
+		for (i = 0; i < loop + skip ; i++) {
+			if (i == skip) { /* warm up loop */
+				t_start = get_time_usec();
+				ptd->bytes_sent = 0;
+			}
 			for (j = 0; j < window_size; j++) {
 				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
 						ptd->fi_addrs[hop_proc_id],
@@ -473,9 +476,9 @@ void *thread_fn(void *data) {
 			}
 			wait_for_comp(ptd->scq, window_size);
 		}
-		loops = (loop + skip) * window_size;
-		//wait_for_comp(ptd->scq, loops);
+		loops = loop * window_size;
 		t_end = get_time_usec();
+		//wait_for_comp(ptd->scq, loops);
 
 		fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL,
 				ptd->fi_addrs[hop_proc_id],
@@ -493,6 +496,10 @@ void *thread_fn(void *data) {
 		if (myid == hop_proc_id) { // hop
 			//t_start = get_time_usec();
 			for (i = 0; i < loop + skip; i++) {
+				if (i == skip) { /* warm up loop */
+					t_start = get_time_usec();
+					ptd->bytes_sent = 0;
+				}
 				for (j = 0; j < window_size; j++) {
 					//for (j = 0; j < window_size - start_window; j++) {
 					for (peer = myid + 1; peer < numprocs; peer++) {
@@ -506,8 +513,9 @@ void *thread_fn(void *data) {
 					wait_for_comp(ptd->scq, num_receiver_procs);
 				}
 			}
-			loops = (loop + skip) * window_size * num_receiver_procs;
-			//t_end = get_time_usec();
+			loops = loop * window_size * num_receiver_procs;
+			t_end = get_time_usec();
+
 			// get msgs from senders
 			for (peer = 0; peer < num_sender_procs; peer++) {
 				fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL,
@@ -707,7 +715,9 @@ int main(int argc, char *argv[]) {
 
 	/* Bandwidth test */
 //for (size = MAX_MSG_SIZE / 8; size <= MAX_MSG_SIZE; size *= 2) {
-	for (size = 1; size <= MAX_MSG_SIZE; size *= 2) {
+	size = 1048576;
+	//for (size = 1; size <= MAX_MSG_SIZE; size *= 2)
+	{
 		/* reset data per thread */
 		for (i = 0; i < tunables.threads; i++) {
 			ptd = &thread_data[i];
@@ -747,7 +757,7 @@ int main(int argc, char *argv[]) {
 
 		ctpm_Barrier();
 
-		if (myid == 0) { // && size == MAX_MSG_SIZE) {
+		if (myid == 0 || myid == hop_proc_id) { // && size == MAX_MSG_SIZE) {
 			min_lat = max_lat = sum_lat = thread_data[0].latency;
 			bytes_sent = thread_data[0].bytes_sent;
 			time_start = thread_data[0].time_start;
@@ -787,8 +797,14 @@ int main(int argc, char *argv[]) {
 			 FIELD_WIDTH, FLOAT_PRECISION, min_lat,
 			 FIELD_WIDTH, FLOAT_PRECISION, max_lat);
 			 */
-			fprintf(stdout, "%d\t%*.*f\n", size,
-			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			if (myid == 0) {
+				fprintf(stdout, "SENDER\t%d\t%*.*f\n", size,
+				FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			} else {
+				fprintf(stdout, "HOP\t%d\t%*.*f\n", size,
+				FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			}
+
 			fflush(stdout);
 		}
 

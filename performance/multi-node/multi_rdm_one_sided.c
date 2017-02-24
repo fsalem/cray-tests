@@ -443,7 +443,7 @@ void *thread_fn(void *data) {
 	ssize_t __attribute__((unused)) fi_rc;
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
-	uint64_t t_start = 0, t_end = 0;
+	uint64_t t_start = 0, t_end = 0, loops;
 
 	it.data = data;
 	size = it.message_size;
@@ -459,12 +459,11 @@ void *thread_fn(void *data) {
 	if ((myid < (numprocs / 2) && !two_sided_per_node)
 			|| (myid % 2 == 0 && two_sided_per_node)) {
 		//peer = 1;
-		t_start = get_time_usec();
 		for (i = 0; i < loop + skip; i++) {
-			/*if (i == skip) {  warm up loop
-
-			 ptd->bytes_sent = 0;
-			 }*/
+			if (i == skip) {  //warm up loop
+				t_start = get_time_usec();
+				ptd->bytes_sent = 0;
+			}
 
 			for (j = 0; j < window_size; j++) {
 				if (two_sided_per_node) {
@@ -484,25 +483,11 @@ void *thread_fn(void *data) {
 						peer++;
 					}
 				}
-				wait_for_comp(ptd->scq, (numprocs / 2));
-				//printf("id:%d waiting for comp from peer#%d\n",myid,peer);
-				//wait_for_comp(ptd->scq, window_size);
-				//printf("id:%d received for comp from peer#%d\n",myid,peer);
 			}
-			//wait_for_comp(ptd->scq, (window_size* (loop + skip)));
-			/*
-			 fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->scq, 1);
+			wait_for_comp(ptd->scq, (numprocs / 2) * window_size);
 
-			 fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->rcq, 1);
-			 */
 		}
-		//wait_for_comp(ptd->scq, (window_size * (loop + skip) * (numprocs / 2)));
+		loops = loops * (numprocs / 2) * window_size;
 		t_end = get_time_usec();
 		if (two_sided_per_node) {
 			peer = 1;
@@ -545,8 +530,7 @@ void *thread_fn(void *data) {
 
 	ct_tbarrier(&ptd->tbar);
 
-	ptd->latency = (t_end - t_start)
-			/ (double) ((loop * numprocs) * window_size);
+	ptd->latency = (t_end - t_start) / (double) (loops);
 	ptd->time_start = t_start;
 	ptd->time_end = t_end;
 

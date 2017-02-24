@@ -56,6 +56,7 @@
 #define MYBUFSIZE (MAX_MSG_SIZE + MAX_ALIGNMENT)
 
 #define TEST_DESC "Libfabric Bandwidth Test"
+#define MAX_SENT_DATA (UINT64_C(1024*1024*1024*100))
 #define HEADER "# " TEST_DESC " \n"
 #ifndef FIELD_WIDTH
 #   define FIELD_WIDTH 20
@@ -99,6 +100,7 @@ struct per_thread_data {
 	char r_buf_original[MYBUFSIZE];
 	char *s_buf;
 	char *r_buf;
+	uint64_t* sent_data;
 	void *addrs;
 	fi_addr_t *fi_addrs;
 	buf_desc_t *rbuf_descs;
@@ -395,6 +397,7 @@ int init_per_thread_data(struct per_thread_data *ptd) {
 			+ (align_size - 1)) / align_size * align_size);
 	ptd->r_buf = (char *) (((unsigned long) ptd->r_buf_original
 			+ (align_size - 1)) / align_size * align_size);
+	ptd->sent_data = malloc(sizeof(uint64_t));
 
 	ret = fi_mr_reg(dom, ptd->r_buf, MYBUFSIZE, FI_REMOTE_WRITE, 0, 0, 0,
 			&ptd->r_mr, NULL);
@@ -443,7 +446,7 @@ void *thread_fn(void *data) {
 	ssize_t __attribute__((unused)) fi_rc;
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
-	uint64_t t_start = 0, t_end = 0;
+	uint64_t t_start = 0, t_end = 0, loops = 0, bytes_sent_to_each;
 
 	it.data = data;
 	size = it.message_size;
@@ -456,62 +459,112 @@ void *thread_fn(void *data) {
 
 	ct_tbarrier(&ptd->tbar);
 
-	/*if ((myid < (numprocs / 2) && !two_sided_per_node)
-	 || (myid % 2 == 0 && two_sided_per_node)) {*/
-	//peer = 1;
+	if (myid < (numprocs / 2)) {
+		for (peer = (numprocs / 2); peer < numprocs; peer++) {
+			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
+
+			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+
+		}
+	} else {
+		for (peer = 0; peer < (numprocs / 2); peer++) {
+			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+
+			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
+		}
+	}
+
 	t_start = get_time_usec();
-	for (i = 0; i < loop + skip; i++) {
+	//for (i = 0; i < loop + skip; i++) {
+	while (ptd->bytes_sent < MAX_SENT_DATA) {
+		loops++;
+		/*if (i == skip) {  warm up loop
+		 t_start = get_time_usec();
+		 ptd->bytes_sent = 0;
+		 }*/
 		for (j = 0; j < window_size; j++) {
 			for (k = 1; k <= num_out_conns; k++) {
 				peer = (myid + k) % numprocs;
+				ptd->s_buf[(j + k) % size] = peer;
 				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
 						ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
 						ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
 				assert(fi_rc==FI_SUCCESS);
 				ptd->bytes_sent += size;
 			}
-			wait_for_comp(ptd->scq, num_out_conns);
-			//fprintf(stdout, "POST RECEIVE\n");
-			/*if (myid % 2 == 1) {
-			 fi_rc = fi_recv(ptd->ep, ptd->r_buf, 4, NULL,
-			 ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->rcq, 1);
-			 } else {
-			 //fprintf(stdout, "POST SEND\n");
-			 fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL,
-			 ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->scq, 1);
-			 }*/
+		}
+		wait_for_comp(ptd->scq, window_size * num_out_conns);
+	}
+	loops *= window_size * num_out_conns;
+
+	bytes_sent_to_each = (ptd->bytes_sent / num_out_conns);
+	/*fprintf(stdout, "%d\t%ldGB\n", myid,
+	 (ptd->bytes_sent / (1024 * 1024 * 1024)));*/
+
+	if (myid < (numprocs / 2)) {
+		for (peer = (numprocs / 2); peer < numprocs; peer++) {
+			//(*ptd->sent_data) = bytes_sent_to_each;
+			(*ptd->sent_data) = 0;
+			/*fprintf(stdout, "%d\t%d\t%ldGB TBS\n", myid, peer,
+			 ((*ptd->sent_data) / (1024 * 1024 * 1024)));*/
+			fi_rc = fi_send(ptd->ep, ptd->sent_data, sizeof(ptd->sent_data),
+			NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
+
+			fi_rc = fi_recv(ptd->ep, ptd->sent_data, sizeof(ptd->sent_data),
+			NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+			//ptd->bytes_sent += (*ptd->sent_data);
+			/*fprintf(stdout, "%d\t%ldGB\t%ldGB\n", myid,
+			 (ptd->bytes_sent / (1024 * 1024 * 1024)),
+			 ((*ptd->sent_data) / (1024 * 1024 * 1024)));*/
+
+		}
+	} else {
+		for (peer = 0; peer < (numprocs / 2); peer++) {
+			(*ptd->sent_data) = 0;
+			fi_rc = fi_recv(ptd->ep, ptd->sent_data, sizeof(ptd->sent_data),
+			NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+			//ptd->bytes_sent += (*ptd->sent_data);
+			/*fprintf(stdout, "%d\t%ldGB\t%ldGB\n", myid,
+			 (ptd->bytes_sent / (1024 * 1024 * 1024)),
+			 ((*ptd->sent_data) / (1024 * 1024 * 1024)));*/
+
+			//(*ptd->sent_data) = bytes_sent_to_each;
+			/*fprintf(stdout, "%d\t%d\t%ldGB TBS\n", myid, peer,
+			 ((*ptd->sent_data) / (1024 * 1024 * 1024)));*/
+			fi_rc = fi_send(ptd->ep, ptd->sent_data, sizeof(ptd->sent_data),
+			NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
 		}
 	}
-	//wait_for_comp(ptd->scq, (window_size * (loop + skip) * num_out_conns));
+	ptd->bytes_sent *= 2;
 	t_end = get_time_usec();
-
-	/*
-	 for (k = 1; k <= num_out_conns; k++) {
-	 peer = (myid + k) % numprocs;
-
-	 fi_rc = fi_recv(ptd->ep, ptd->r_buf, 4, NULL, ptd->fi_addrs[peer],
-	 NULL);
-	 assert(!fi_rc);
-
-	 fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-	 NULL);
-	 assert(!fi_rc);
-
-	 wait_for_comp(ptd->scq, 1);
-	 wait_for_comp(ptd->rcq, 1);
-	 }
-	 */
 
 	ct_tbarrier(&ptd->tbar);
 
-	ptd->latency = (t_end - t_start)
-			/ (double) ((loop * numprocs) * window_size);
+	ptd->latency = (t_end - t_start);
 	ptd->time_start = t_start;
 	ptd->time_end = t_end;
 
@@ -650,7 +703,9 @@ int main(int argc, char *argv[]) {
 
 	/* Bandwidth test */
 	//for (size = MAX_MSG_SIZE / 2; size <= MAX_MSG_SIZE; size *= 2) {
-	for (size = 1; size <= MAX_MSG_SIZE; size *= 2) {
+	size = 1048576;
+	//for (size = 1; size <= MAX_MSG_SIZE; size *= 2)
+	{
 		/* reset data per thread */
 		for (i = 0; i < tunables.threads; i++) {
 			ptd = &thread_data[i];
@@ -690,7 +745,8 @@ int main(int argc, char *argv[]) {
 
 		ctpm_Barrier();
 
-		if (myid == 0) {
+		//if (myid == 0)
+		{
 			min_lat = max_lat = sum_lat = thread_data[0].latency;
 			bytes_sent = thread_data[0].bytes_sent;
 			time_start = thread_data[0].time_start;
@@ -723,8 +779,10 @@ int main(int argc, char *argv[]) {
 			 FIELD_WIDTH, FLOAT_PRECISION, max_lat);*/
 			/*fprintf(stdout, "%d\t%f\t%f\t%f\t%f\n", size, mbps,
 			 sum_lat / tunables.threads, min_lat, max_lat);*/
-			fprintf(stdout, "%d\t%*.*f\n", size,
-			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			fprintf(stdout, "%d\t%d\t%*.*f\t%ldGB\t%*.*f\n", myid ,size,
+			FIELD_WIDTH, FLOAT_PRECISION, mbps,
+					(ptd->bytes_sent) / (1024 * 1024 * 1024),
+					FIELD_WIDTH, FLOAT_PRECISION, ptd->latency / (1.0 * 1e6));
 			fflush(stdout);
 		}
 

@@ -45,6 +45,7 @@
 #include <rdma/fi_cm.h>
 #include <rdma/fi_rma.h>
 #include <stdatomic.h>
+#include <inttypes.h>
 
 #include <pthread.h>
 
@@ -54,8 +55,10 @@
 #define MAX_ALIGNMENT 65536
 #define MAX_MSG_SIZE (1<<22)
 #define MYBUFSIZE (MAX_MSG_SIZE + MAX_ALIGNMENT)
+#define GIGA_BYTE_SIZE (1024*1024*1024)
 
 #define TEST_DESC "Libfabric Bandwidth Test"
+#define MAX_SENT_DATA (UINT64_C(1024*1024*1024*100))
 #define HEADER "# " TEST_DESC " \n"
 #ifndef FIELD_WIDTH
 #   define FIELD_WIDTH 20
@@ -73,8 +76,6 @@ int window_size_large = 64;
 int skip_large = 2;
 
 int large_message_size = 8192;
-
-int two_sided_per_node = 0;
 
 int num_sender_procs = 0;
 int num_receiver_procs = 0;
@@ -94,7 +95,7 @@ struct per_thread_data {
 	struct fid_ep *ep;
 	struct fid_av *av;
 	struct fid_cq *rcq, *scq;
-	struct fid_mr *r_mr, *l_mr;
+	struct fid_mr *r_mr, *l_mr, *b_mr;
 	struct fi_context fi_ctx_send;
 	struct fi_context fi_ctx_recv;
 	struct fi_context fi_ctx_av;
@@ -102,6 +103,7 @@ struct per_thread_data {
 	char r_buf_original[MYBUFSIZE];
 	char *s_buf;
 	char *r_buf;
+	uint64_t* sent_data;
 	void *addrs;
 	fi_addr_t *fi_addrs;
 	buf_desc_t *rbuf_descs;
@@ -399,6 +401,8 @@ int init_per_thread_data(struct per_thread_data *ptd) {
 	ptd->r_buf = (char *) (((unsigned long) ptd->r_buf_original
 			+ (align_size - 1)) / align_size * align_size);
 
+	ptd->sent_data = malloc(sizeof(uint64_t));
+
 	ret = fi_mr_reg(dom, ptd->r_buf, MYBUFSIZE, FI_REMOTE_WRITE, 0, 0, 0,
 			&ptd->r_mr, NULL);
 	if (ret) {
@@ -421,6 +425,14 @@ int init_per_thread_data(struct per_thread_data *ptd) {
 		return -1;
 	}
 
+	/*
+	 ret = fi_mr_reg(dom, ptd->sent_data, MYBUFSIZE, FI_WRITE, 0, 0, 0, &ptd->b_mr,
+	 NULL);
+	 if (ret) {
+	 ct_print_fi_error("fi_mr_reg", ret);
+	 return -1;
+	 }
+	 */
 	return 0;
 }
 
@@ -432,6 +444,9 @@ int fini_per_thread_data(struct per_thread_data * ptd) {
 
 	if (&ptd->r_mr->fid != NULL)
 		fi_close(&ptd->r_mr->fid);
+
+	if (&ptd->b_mr->fid != NULL)
+		fi_close(&ptd->b_mr->fid);
 
 	free_ep_res(ptd);
 
@@ -446,7 +461,7 @@ void *thread_fn(void *data) {
 	ssize_t __attribute__((unused)) fi_rc;
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
-	uint64_t t_start = 0, t_end = 0;
+	uint64_t t_start = 0, t_end = 0, loops = 0;
 
 	it.data = data;
 	size = it.message_size;
@@ -458,113 +473,93 @@ void *thread_fn(void *data) {
 	ptd->bytes_sent = 0;
 
 	ct_tbarrier(&ptd->tbar);
-
-	if ((myid < num_sender_procs && !two_sided_per_node)
-			|| (myid % 2 == 0 && two_sided_per_node)) {
+	if (myid < num_sender_procs) {
 		//peer = 1;
-		t_start = get_time_usec();
-		for (i = 0; i < loop + skip; i++) {
-			/*if (i == skip) {  warm up loop
+		for (peer = num_sender_procs; peer < numprocs; peer++) {
+			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
 
+			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+		}
+		t_start = get_time_usec();
+		while (ptd->bytes_sent
+				< (MAX_SENT_DATA * num_receiver_procs) / num_sender_procs) {
+			loops++;
+			//for (i = 0; i < loop + skip; i++) {
+			/*if (i == skip) {  //warm up loop
+			 t_start = get_time_usec();
 			 ptd->bytes_sent = 0;
 			 }*/
 
-			//for (j = 0; j < window_size; j++) {
-			for (j = 0; j < window_size - start_window; j++) {
-				if (two_sided_per_node) {
-					peer = 1;
-				} else {
-					peer = num_sender_procs;
-				}
-				while (peer < numprocs) {
+			for (j = 0; j < window_size; j++) {
+				//for (j = 0; j < window_size - start_window; j++) {
+				for (peer = num_sender_procs; peer < numprocs; peer++) {
 					fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
 							ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
 							ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
 					assert(fi_rc==FI_SUCCESS);
 					ptd->bytes_sent += size;
-					if (two_sided_per_node) {
-						peer += 2;
-					} else {
-						peer++;
-					}
 				}
-				wait_for_comp(ptd->scq, num_receiver_procs);
-				//printf("id:%d waiting for comp from peer#%d\n",myid,peer);
-				//wait_for_comp(ptd->scq, window_size);
-				//printf("id:%d received for comp from peer#%d\n",myid,peer);
+				//wait_for_comp(ptd->scq, num_receiver_procs);
 			}
-			//wait_for_comp(ptd->scq, (window_size* (loop + skip)));
-			/*
-			 fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->scq, 1);
+			wait_for_comp(ptd->scq, window_size * num_receiver_procs);
+		}
+		loops *= window_size * num_receiver_procs;
 
-			 fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->rcq, 1);
-			 */
+		*(ptd->sent_data) = ptd->bytes_sent / num_receiver_procs;
+		//fprintf(stdout, "s: %ld\n",*(ptd->sent_data));
+		for (peer = num_sender_procs; peer < numprocs; peer++) {
+			fi_rc = fi_send(ptd->ep, ptd->sent_data, sizeof(ptd->sent_data),
+			NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
+
+			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
 		}
-		/*wait_for_comp(ptd->scq,
-		 //(window_size
-		 ( (window_size - start_window) * (loop + skip) * num_receiver_procs));*/
 		t_end = get_time_usec();
-		if (two_sided_per_node) {
-			peer = 1;
-		} else {
-			peer = num_sender_procs;
-		}
-		while (peer < numprocs) {
+	} else {
+		for (peer = 0; peer < num_sender_procs; peer++) {
+			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+
 			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
 			NULL);
 			assert(!fi_rc);
 			wait_for_comp(ptd->scq, 1);
-			/*
-			 fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			 NULL);
-			 assert(!fi_rc);
-			 wait_for_comp(ptd->rcq, 1);
-			 */
-			if (two_sided_per_node) {
-				peer += 2;
-			} else {
-				peer++;
-			}
 		}
-	} else {
-		int limit = num_sender_procs;
-		if (two_sided_per_node)
-			limit = numprocs;
-
-		peer = 0;
-		while (peer < limit) {
-			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, FI_ADDR_UNSPEC,
+		t_start = get_time_usec();
+		for (peer = 0; peer < num_sender_procs; peer++) {
+			fi_rc = fi_recv(ptd->ep, ptd->sent_data, sizeof(ptd->sent_data),
+			NULL, ptd->fi_addrs[peer],
 			NULL);
 			assert(!fi_rc);
 			wait_for_comp(ptd->rcq, 1);
-			peer = peer + 1 + two_sided_per_node;
+			assert(ptd->sent_data > 0);
+			//fprintf(stdout, "r%d: %ld\n", myid, (*ptd->sent_data));
+			ptd->bytes_sent += (*ptd->sent_data);
+
+			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
 		}
-		/*
-		 for (peer = 0; peer < limit; peer = peer + 1 + two_sided_per_node) {
-		 fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-		 NULL);
-		 assert(!fi_rc);
-		 wait_for_comp(ptd->rcq, 1);
-
-		 fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-		 NULL);
-		 assert(!fi_rc);
-		 wait_for_comp(ptd->scq, 1);
-		 }
-		 */
-
+		t_end = get_time_usec();
 	}
 
 	ct_tbarrier(&ptd->tbar);
 
-	ptd->latency = (t_end - t_start)
-			/ (double) ((loop * numprocs) * ((window_size - start_window)));//window_size);
+	ptd->latency = (t_end - t_start); // / (double) (loops);
 	ptd->time_start = t_start;
 	ptd->time_end = t_end;
 
@@ -578,8 +573,8 @@ int main(int argc, char *argv[]) {
 	struct per_thread_data *ptd;
 	double min_lat, max_lat, sum_lat;
 	uint64_t time_start, time_end, latency;
-	uint64_t bytes_sent, bytes_sent_per_node;
-	double mbps;
+	uint64_t bytes_sent;
+	double mbps, gbytes_sent_per_node;
 
 	pthread_mutex_init(&mutex, NULL);
 	tunables.threads = 1;
@@ -597,7 +592,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
-	while ((op = getopt(argc, argv, "hmt:i:l:s:b:r:" CT_STD_OPTS)) != -1) {
+	while ((op = getopt(argc, argv, "hmt:i:l:s:r:" CT_STD_OPTS)) != -1) {
 		switch (op) {
 		default:
 			ct_parse_std_opts(op, optarg, hints);
@@ -641,12 +636,6 @@ int main(int argc, char *argv[]) {
 				return EXIT_FAILURE;
 			}
 			window_size_large = window_size;
-			break;
-		case 'b': // if > 0 then each node could have both senders and receivers
-			two_sided_per_node = atoi(optarg);
-			if (two_sided_per_node < 0) {
-				two_sided_per_node = 0;
-			}
 			break;
 		case 'r': // if > 0 then each node could have both senders and receivers
 			num_receiver_procs = atoi(optarg);
@@ -717,10 +706,13 @@ int main(int argc, char *argv[]) {
 
 	/* Bandwidth test */
 	//for (size = MAX_MSG_SIZE / 8; size <= MAX_MSG_SIZE; size *= 2) {
-	for (size = 1; size <= MAX_MSG_SIZE; size *= 2) {
+	size = 1048576;
+	//for (size = 1; size <= MAX_MSG_SIZE; size *= 2)
+	{
 		/* reset data per thread */
 		for (i = 0; i < tunables.threads; i++) {
 			ptd = &thread_data[i];
+			memset(ptd->sent_data, 0, sizeof(ptd->sent_data));
 
 			/* touch the data */
 			for (j = 0; j < size; j++) {
@@ -737,7 +729,7 @@ int main(int argc, char *argv[]) {
 		/*if (myid == 0)
 		 printf("window_size = %i\n", window_size);*/
 
-		iter_key.message_size = size/num_sender_procs;
+		iter_key.message_size = size;
 
 		ctpm_Barrier();
 
@@ -757,7 +749,7 @@ int main(int argc, char *argv[]) {
 
 		ctpm_Barrier();
 
-		if (myid == 0) { // && size == MAX_MSG_SIZE) {
+		if (myid == 0 || myid == num_sender_procs) { // && size == MAX_MSG_SIZE) {
 			min_lat = max_lat = sum_lat = thread_data[0].latency;
 			bytes_sent = thread_data[0].bytes_sent;
 			time_start = thread_data[0].time_start;
@@ -783,8 +775,13 @@ int main(int argc, char *argv[]) {
 			mbps = ((bytes_sent * 1.0) / (1024. * 1024.))
 					/ ((time_end - time_start) / (1.0 * 1e6));
 
-			bytes_sent_per_node = ((bytes_sent * 1.0)
-					/ (num_receiver_procs * 1.0)) / (1024. * 1024. * 1024.);
+			if (myid < num_sender_procs)
+				gbytes_sent_per_node = ((bytes_sent * 1.0)
+						/ (num_receiver_procs * 1.0)) / (1024. * 1024. * 1024.);
+			else {
+				gbytes_sent_per_node = (bytes_sent * 1.0)
+						/ (1024. * 1024. * 1024.);
+			}
 			latency = ((time_end - time_start) / (1.0 * 1e6));
 			/*fprintf(stdout,
 			 "MSG SIZE: %u, Bandwidth: %f, sent data per receiver: %u GBs, total received data by each receiver: %u GBs in %u seconds \n",
@@ -797,8 +794,11 @@ int main(int argc, char *argv[]) {
 			 FIELD_WIDTH, FLOAT_PRECISION, min_lat,
 			 FIELD_WIDTH, FLOAT_PRECISION, max_lat);
 			 */
-			fprintf(stdout, "%d\t%*.*f\n", size,
-			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			fprintf(stdout, "%d\t%d\t%*.*f\t%*.*f\t%*.*f\n", myid, size,
+			FIELD_WIDTH, FLOAT_PRECISION, mbps,
+			FIELD_WIDTH, FLOAT_PRECISION, gbytes_sent_per_node,
+			FIELD_WIDTH, FLOAT_PRECISION,
+					((time_end - time_start) / (1.0 * 1e6)));
 			fflush(stdout);
 		}
 
