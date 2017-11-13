@@ -459,57 +459,60 @@ void *thread_fn(void *data) {
 	if ((myid < (numprocs / 2) && !two_sided_per_node)
 			|| (myid % 2 == 0 && two_sided_per_node)) {
 		//peer = 1;
-		for (i = 0; i < loop + skip; i++) {
-			if (i == skip) {  //warm up loop
-				t_start = get_time_usec();
-				ptd->bytes_sent = 0;
-			}
-
-			for (j = 0; j < window_size; j++) {
-				if (two_sided_per_node) {
-					peer = 1;
-				} else {
-					peer = (numprocs / 2);
-				}
-				while (peer < numprocs) {
-					fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
-							ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
-							ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
-					assert(fi_rc==FI_SUCCESS);
-					ptd->bytes_sent += size;
-					if (two_sided_per_node) {
-						peer += 2;
-					} else {
-						peer++;
-					}
-				}
-			}
-			wait_for_comp(ptd->scq, (numprocs / 2) * window_size);
-
+	    uint64_t write_count = 0;
+	    for (i = 0; i < loop + skip; i++) {
+		write_count = 0;
+		if (i == skip) {  //warm up loop
+			t_start = get_time_usec();
+			ptd->bytes_sent = 0;
 		}
-		loops = loops * (numprocs / 2) * window_size;
-		t_end = get_time_usec();
-		if (two_sided_per_node) {
-			peer = 1;
-		} else {
-			peer = (numprocs / 2);
-		}
-		while (peer < numprocs) {
-			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			NULL);
-			assert(!fi_rc);
-			wait_for_comp(ptd->scq, 1);
 
-			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			NULL);
-			assert(!fi_rc);
-			wait_for_comp(ptd->rcq, 1);
+		for (j = 0; j < window_size; j++) {
 			if (two_sided_per_node) {
-				peer += 2;
+				peer = 1;
 			} else {
-				peer++;
+				peer = (numprocs / 2);
+			}
+			while (peer < numprocs) {
+				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
+						ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
+						ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
+				assert(fi_rc==FI_SUCCESS);
+				write_count++;
+				ptd->bytes_sent += size;
+				if (two_sided_per_node) {
+					peer += 2;
+				} else {
+					peer++;
+				}
 			}
 		}
+		wait_for_comp(ptd->scq, write_count);
+
+	    }
+	    loops = loop * write_count;
+	    t_end = get_time_usec();
+	    if (two_sided_per_node) {
+		    peer = 1;
+	    } else {
+		    peer = (numprocs / 2);
+	    }
+	    while (peer < numprocs) {
+		    fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+		    NULL);
+		    assert(!fi_rc);
+		    wait_for_comp(ptd->scq, 1);
+
+		    fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+		    NULL);
+		    assert(!fi_rc);
+		    wait_for_comp(ptd->rcq, 1);
+		    if (two_sided_per_node) {
+			    peer += 2;
+		    } else {
+			    peer++;
+		    }
+	    }
 	} else {
 		int limit = (numprocs / 2);
 		if (two_sided_per_node)
