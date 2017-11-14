@@ -463,29 +463,29 @@ void *thread_fn(void *data) {
 	    for (i = 0; i < loop + skip; i++) {
 		write_count = 0;
 		if (i == skip) {  //warm up loop
-			t_start = get_time_usec();
-			ptd->bytes_sent = 0;
+		    t_start = get_time_usec();
+		    ptd->bytes_sent = 0;
 		}
 
 		for (j = 0; j < window_size; j++) {
+		    if (two_sided_per_node) {
+			    peer = 1;
+		    } else {
+			    peer = (numprocs / 2);
+		    }
+		    while (peer < numprocs) {
+			fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
+					ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
+					ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
+			assert(fi_rc==FI_SUCCESS);
+			write_count++;
+			ptd->bytes_sent += size;
 			if (two_sided_per_node) {
-				peer = 1;
+				peer += 2;
 			} else {
-				peer = (numprocs / 2);
+				peer++;
 			}
-			while (peer < numprocs) {
-				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
-						ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
-						ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
-				assert(fi_rc==FI_SUCCESS);
-				write_count++;
-				ptd->bytes_sent += size;
-				if (two_sided_per_node) {
-					peer += 2;
-				} else {
-					peer++;
-				}
-			}
+		    }
 		}
 		wait_for_comp(ptd->scq, write_count);
 

@@ -47,6 +47,7 @@
 #include <stdatomic.h>
 
 #include <pthread.h>
+#include <mpi.h>
 
 #include "ct_utils.h"
 #include "ct_tbarrier.h"
@@ -455,24 +456,17 @@ void *thread_fn(void *data) {
 	ptd->bytes_sent = 0;
 
 	ct_tbarrier(&ptd->tbar);
+	int rc = MPI_Barrier(MPI_COMM_WORLD);
+	assert(rc == MPI_SUCCESS);
+	t_start = get_time_usec();
 
-	if ((myid < (numprocs / 2) && !two_sided_per_node)
-			|| (myid % 2 == 0 && two_sided_per_node)) {
+	if ((myid < (numprocs / 2))) {
 		//peer = 1;
 	    uint64_t write_count = 0;
-	    for (i = 0; i < loop + skip; i++) {
+	    for (i = 0; i < loop; i++) {
 		write_count = 0;
-		if (i == skip) {  //warm up loop
-			t_start = get_time_usec();
-			ptd->bytes_sent = 0;
-		}
-
 		for (j = 0; j < window_size; j++) {
-			if (two_sided_per_node) {
-				peer = 1;
-			} else {
-				peer = (numprocs / 2);
-			}
+			peer = (numprocs / 2);
 			while (peer < numprocs) {
 				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
 						ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
@@ -480,58 +474,18 @@ void *thread_fn(void *data) {
 				assert(fi_rc==FI_SUCCESS);
 				write_count++;
 				ptd->bytes_sent += size;
-				if (two_sided_per_node) {
-					peer += 2;
-				} else {
-					peer++;
-				}
+				peer++;
 			}
 		}
 		wait_for_comp(ptd->scq, write_count);
 
 	    }
 	    loops = loop * write_count;
-	    t_end = get_time_usec();
-	    if (two_sided_per_node) {
-		    peer = 1;
-	    } else {
-		    peer = (numprocs / 2);
-	    }
-	    while (peer < numprocs) {
-		    fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-		    NULL);
-		    assert(!fi_rc);
-		    wait_for_comp(ptd->scq, 1);
-
-		    fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-		    NULL);
-		    assert(!fi_rc);
-		    wait_for_comp(ptd->rcq, 1);
-		    if (two_sided_per_node) {
-			    peer += 2;
-		    } else {
-			    peer++;
-		    }
-	    }
-	} else {
-		int limit = (numprocs / 2);
-		if (two_sided_per_node)
-			limit = numprocs;
-		peer = 0;
-		for (peer = 0; peer < limit; peer = peer + 1 + two_sided_per_node) {
-			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			NULL);
-			assert(!fi_rc);
-			wait_for_comp(ptd->rcq, 1);
-
-			fi_rc = fi_send(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
-			NULL);
-			assert(!fi_rc);
-			wait_for_comp(ptd->scq, 1);
-		}
 	}
-
 	ct_tbarrier(&ptd->tbar);
+	rc = MPI_Barrier(MPI_COMM_WORLD);
+	assert(rc == MPI_SUCCESS);
+	t_end = get_time_usec();
 
 	ptd->latency = (t_end - t_start) / (double) (loops);
 	ptd->time_start = t_start;
@@ -553,6 +507,7 @@ int main(int argc, char *argv[]) {
 	pthread_mutex_init(&mutex, NULL);
 	tunables.threads = 1;
 
+	MPI_Init(&argc, &argv);
 	ctpm_Init(&argc, &argv);
 	ctpm_Rank(&myid);
 	ctpm_Job_size(&numprocs);
@@ -693,6 +648,8 @@ int main(int argc, char *argv[]) {
 
 		ctpm_Barrier();
 
+		int rc = MPI_Barrier(MPI_COMM_WORLD);
+		assert(rc == MPI_SUCCESS);
 		/* threaded section */
 		for (i = 0; i < tunables.threads; i++) {
 			iter_key.thread_id = i;
@@ -755,6 +712,7 @@ int main(int argc, char *argv[]) {
 
 	ctpm_Barrier();
 	ctpm_Finalize();
+	MPI_Finalize();
 
 	pthread_exit(NULL);
 }
