@@ -47,6 +47,7 @@
 #include <stdatomic.h>
 
 #include <pthread.h>
+#include <mpi.h>
 
 #include "ct_utils.h"
 #include "ct_tbarrier.h"
@@ -455,6 +456,8 @@ void *thread_fn(void *data) {
 	ptd->bytes_sent = 0;
 
 	ct_tbarrier(&ptd->tbar);
+	int rc = MPI_Barrier(MPI_COMM_WORLD);
+	assert(rc == MPI_SUCCESS);
 
 	if ((myid < (numprocs / 2) && !two_sided_per_node)
 			|| (myid % 2 == 0 && two_sided_per_node)) {
@@ -532,6 +535,8 @@ void *thread_fn(void *data) {
 	}
 
 	ct_tbarrier(&ptd->tbar);
+	rc = MPI_Barrier(MPI_COMM_WORLD);
+	assert(rc == MPI_SUCCESS);
 
 	ptd->latency = (t_end - t_start) / (double) (loops);
 	ptd->time_start = t_start;
@@ -553,6 +558,7 @@ int main(int argc, char *argv[]) {
 	pthread_mutex_init(&mutex, NULL);
 	tunables.threads = 1;
 
+	MPI_Init(&argc, &argv);
 	ctpm_Init(&argc, &argv);
 	ctpm_Rank(&myid);
 	ctpm_Job_size(&numprocs);
@@ -693,6 +699,8 @@ int main(int argc, char *argv[]) {
 
 		ctpm_Barrier();
 
+		int rc = MPI_Barrier(MPI_COMM_WORLD);
+		assert(rc == MPI_SUCCESS);
 		/* threaded section */
 		for (i = 0; i < tunables.threads; i++) {
 			iter_key.thread_id = i;
@@ -755,6 +763,7 @@ int main(int argc, char *argv[]) {
 
 	ctpm_Barrier();
 	ctpm_Finalize();
+	MPI_Finalize();
 
 	pthread_exit(NULL);
 }
