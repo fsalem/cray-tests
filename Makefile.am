@@ -7,7 +7,7 @@ bin_PROGRAMS = \
 	performance/multi-node/rdm_one_sided \
 	performance/multi-node/multi_rdm_one_sided \
 	performance/multi-node/multi_rdm_one_sided_read \
-	performance/multi_rdm_one_sided_MPI_barrier \
+	performance/multi-node/multi_rdm_one_sided_MPI_barrier \
 	performance/multi-node/random_access \
 	performance/single-node/lock_tests
 
