@@ -468,7 +468,7 @@ int fini_per_thread_data(struct per_thread_data * ptd) {
 void *check_completion(void *data) {
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
-	uint64_t t_start = 0, t_end = 0, loops, rc;
+	uint64_t t_start = 0, t_end = 0, loops, rc, remain_events;
 
 	it.data = data;
 
@@ -478,7 +478,8 @@ void *check_completion(void *data) {
 	ptd = &thread_data[it.thread_id];
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
-		rc = wait_for_comp(ptd->scq, (ptd->target_comp_events-ptd->count_comp_events));
+		remain_events = (ptd->target_comp_events-ptd->count_comp_events);
+		rc = wait_for_comp(ptd->scq, (remain_events > loop) ? (remain_events/loop) : remain_events );
 		if (rc > 0){
 			ptd->count_comp_events += rc;
 			total_bytes_sent += rc * it.message_size;
