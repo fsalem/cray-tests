@@ -160,7 +160,7 @@ void *timer(void *data){
     	fprintf(stdout, "[%d]\t%d:%d:%d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
 			FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
-        sleep(1);
+        usleep(1000);
 
     }
 
@@ -479,7 +479,7 @@ void *check_completion(void *data) {
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
 		wait_for_comp(ptd->scq, (ptd->target_comp_events-ptd->count_comp_events));
-		sleep(0.01);
+		usleep(100);
 	}
 	return NULL;
 }
