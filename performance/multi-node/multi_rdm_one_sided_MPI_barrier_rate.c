@@ -124,7 +124,7 @@ struct per_iteration_data {
 
 static pthread_barrier_t thread_barrier;
 struct per_thread_data *thread_data;
-static pthread_t timer_t;
+static pthread_t timer_thread;
 static int transmission_done = 0;
 struct fi_info *fi, *hints;
 struct fid_fabric *fab;
@@ -704,7 +704,7 @@ int main(int argc, char *argv[]) {
 		int rc = MPI_Barrier(MPI_COMM_WORLD);
 		assert(rc == MPI_SUCCESS);
 		/* Timer & bw thread section*/
-		ret = pthread_create(&timer_t, NULL, timer,iter_key.data);
+		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
 		if (ret != 0) {
 			printf("couldn't create thread for timer %i\n", i);
 			pthread_exit(NULL); /* a more robust exit would be nice here */
