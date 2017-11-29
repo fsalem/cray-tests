@@ -479,6 +479,7 @@ void *check_completion(void *data) {
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
 		wait_for_comp(ptd->scq, (ptd->target_comp_events-ptd->count_comp_events));
+		sleep(0.01);
 	}
 	return NULL;
 }
