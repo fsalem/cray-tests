@@ -160,7 +160,7 @@ void *timer(void *data){
     	fprintf(stdout, "[%d]\t%d:%d:%d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
 			FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
-        usleep(1000000);
+        sleep(1);
 
     }
 
@@ -200,7 +200,7 @@ static void cq_readerr(struct fid_cq *cq, const char *cq_str) {
  * fi_cq_err_entry can be cast to any CQ entry format.
  */
 static int wait_for_comp(struct fid_cq *cq, int num_completions) {
-	struct fi_cq_err_entry comp;
+	struct fi_cq_err_entry comp[num_completions];
 
 	int ret = fi_cq_read(cq, &comp, num_completions);
 	if (ret > 0) {
@@ -468,7 +468,7 @@ int fini_per_thread_data(struct per_thread_data * ptd) {
 void *check_completion(void *data) {
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
-	uint64_t t_start = 0, t_end = 0, loops;
+	uint64_t t_start = 0, t_end = 0, loops, rc;
 
 	it.data = data;
 
@@ -478,8 +478,10 @@ void *check_completion(void *data) {
 	ptd = &thread_data[it.thread_id];
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
-		wait_for_comp(ptd->scq, (ptd->target_comp_events-ptd->count_comp_events));
-		usleep(1000);
+		rc = wait_for_comp(ptd->scq, (ptd->target_comp_events-ptd->count_comp_events));
+		if (rc > 0)
+			ptd->count_comp_events += rc;
+		usleep(100);
 	}
 	return NULL;
 }
