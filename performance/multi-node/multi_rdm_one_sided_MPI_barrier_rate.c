@@ -161,7 +161,6 @@ void *timer(void *data){
 			FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
         sleep(1);
-
     }
 
     return 0;
@@ -729,7 +728,6 @@ int main(int argc, char *argv[]) {
 			pthread_join(thread_data[i].thread, NULL);
 
 		ctpm_Barrier();
-		transmission_done = 1;
 		if (myid == 0) {
 			min_lat = max_lat = sum_lat = thread_data[0].latency;
 			bytes_sent = thread_data[0].bytes_sent;
@@ -762,7 +760,7 @@ int main(int argc, char *argv[]) {
 		}
 
 	}
-
+	transmission_done = 1;
 	for (i = 0; i < tunables.threads; i++) {
 		fini_per_thread_data(&thread_data[i]);
 	}
