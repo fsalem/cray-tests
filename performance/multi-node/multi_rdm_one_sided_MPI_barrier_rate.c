@@ -479,8 +479,10 @@ void *check_completion(void *data) {
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
 		rc = wait_for_comp(ptd->scq, (ptd->target_comp_events-ptd->count_comp_events));
-		if (rc > 0)
+		if (rc > 0){
 			ptd->count_comp_events += rc;
+			total_bytes_sent += rc * it.message_size;
+		}
 		usleep(100);
 	}
 	return NULL;
@@ -531,7 +533,6 @@ void *thread_fn(void *data) {
 					assert(fi_rc==FI_SUCCESS);
 					write_count++;
 					ptd->bytes_sent += size;
-					total_bytes_sent += size;
 					peer++;
 				}
 			}
