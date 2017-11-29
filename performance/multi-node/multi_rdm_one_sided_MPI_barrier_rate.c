@@ -536,8 +536,8 @@ void *thread_fn(void *data) {
 					peer++;
 				}
 			}
-			pthread_join(comp_events_t, NULL);
 	    }
+		pthread_join(comp_events_t, NULL);
 	}
 	ct_tbarrier(&ptd->tbar);
 	rc = MPI_Barrier(MPI_COMM_WORLD);
