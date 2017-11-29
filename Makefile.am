@@ -8,6 +8,7 @@ bin_PROGRAMS = \
 	performance/multi-node/multi_rdm_one_sided \
 	performance/multi-node/multi_rdm_one_sided_read \
 	performance/multi-node/multi_rdm_one_sided_MPI_barrier \
+	performance/multi-node/multi_rdm_one_sided_MPI_barrier_rate \
 	performance/multi-node/random_access \
 	performance/single-node/lock_tests
 
@@ -45,6 +46,10 @@ performance_multi_node_multi_rdm_one_sided_read_LDADD = libcraytests.la
 performance_multi_node_multi_rdm_one_sided_MPI_barrier_SOURCES = \
 	performance/multi-node/multi_rdm_one_sided_MPI_barrier.c
 performance_multi_node_multi_rdm_one_sided_MPI_barrier_LDADD = libcraytests.la
+
+performance_multi_node_multi_rdm_one_sided_MPI_barrier_rate_SOURCES = \
+	performance/multi-node/multi_rdm_one_sided_MPI_barrier_rate.c
+performance_multi_node_multi_rdm_one_sided_MPI_barrier_rate_LDADD = libcraytests.la
 
 performance_multi_node_random_access_SOURCES = \
         performance/multi-node/random_access.c
