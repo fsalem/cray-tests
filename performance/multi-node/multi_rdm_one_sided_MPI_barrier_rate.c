@@ -151,13 +151,12 @@ void *timer(void *data){
 	t_time = get_time_usec();
     while(!transmission_done)
     {
-    	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.))
-    						/ ((get_time_usec() - t_time) / (1.0 * 1e6));
+    	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
     	last_sent_bytes = total_bytes_sent;
     	t_time = get_time_usec();
     	time ( &rawtime );
 		timeinfo = localtime ( &rawtime );
-    	fprintf(stdout, "[%d]\t%d:%d:%d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
+    	fprintf(stdout, "[%03d]\t%02d:%02d:%02d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
 			FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
         sleep(1);
