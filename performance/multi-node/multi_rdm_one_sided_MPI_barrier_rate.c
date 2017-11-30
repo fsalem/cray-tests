@@ -132,11 +132,6 @@ struct fid_domain *dom;
 static int thread_safe = 1;
 static uint64_t total_bytes_sent = 0;
 
-static pthread_cond_t      cond  = PTHREAD_COND_INITIALIZER;
-static pthread_mutex_t     mutex = PTHREAD_MUTEX_INITIALIZER;
-
-#define WAIT_TIME_SECONDS       1
-
 int myid, numprocs;
 
 struct test_tunables {
@@ -149,39 +144,21 @@ static pthread_mutex_t mutex;
 void *timer(void *data){
 	time_t rawtime;
 	struct tm * timeinfo;
-	struct timespec   ts;
-	struct timeval    tp;
 	uint64_t last_sent_bytes = 0;
-	//uint64_t t_time;
 	double mbps;
-	int rc;
 
-	//t_time = get_time_usec();
     while(!transmission_done)
     {
     	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
     	//fprintf(stdout, "[%03d]\t tot=%d\t last=%d\t %*.*f\n", myid, total_bytes_sent, last_sent_bytes,
     		//	FIELD_WIDTH, FLOAT_PRECISION, mbps);
     	last_sent_bytes = total_bytes_sent;
-    	//t_time = get_time_usec();
     	time ( &rawtime );
 		timeinfo = localtime ( &rawtime );
     	fprintf(stdout, "[%03d]\t%02d:%02d:%02d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
 			FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
-        //sleep(1);
-		rc =  gettimeofday(&tp, NULL);
-		ts.tv_sec  = tp.tv_sec;
-		ts.tv_nsec = tp.tv_usec * 1000;
-		ts.tv_sec += WAIT_TIME_SECONDS;
-		rc = pthread_cond_timedwait(&cond, &mutex, &ts);
-		if (rc == ETIMEDOUT){
-			fprintf(stdout, "[%03d]\t timeout \n", myid);
-			fflush(stdout);
-		}else{
-			fprintf(stdout, "[%03d]\t NOT timeout \n", myid);
-			fflush(stdout);
-		}
+        sleep(1);
     }
 
     return 0;
@@ -700,6 +677,12 @@ int main(int argc, char *argv[]) {
 		fflush(stdout);
 	}
 
+	/* Timer & bw thread section*/
+	ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
+	if (ret != 0) {
+		printf("couldn't create thread for timer %i\n", i);
+		pthread_exit(NULL); /* a more robust exit would be nice here */
+	}
 	/* Bandwidth test */
 	//for (size = MAX_MSG_SIZE / 2; size <= MAX_MSG_SIZE; size *= 2) {
 	for (size = 1; size <= MAX_MSG_SIZE; size *= 2) {
@@ -728,13 +711,6 @@ int main(int argc, char *argv[]) {
 
 		ret = MPI_Barrier(MPI_COMM_WORLD);
 		assert(ret == MPI_SUCCESS);
-		/* Timer & bw thread section*/
-		ret = pthread_mutex_lock(&mutex);
-		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
-		if (ret != 0) {
-			printf("couldn't create thread for timer %i\n", i);
-			pthread_exit(NULL); /* a more robust exit would be nice here */
-		}
 		/* threaded section */
 		for (i = 0; i < tunables.threads; i++) {
 			iter_key.thread_id = i;
@@ -783,7 +759,6 @@ int main(int argc, char *argv[]) {
 
 	}
 	transmission_done = 1;
-	ret = pthread_mutex_unlock(&mutex);
 	for (i = 0; i < tunables.threads; i++) {
 		fini_per_thread_data(&thread_data[i]);
 	}
@@ -798,9 +773,6 @@ int main(int argc, char *argv[]) {
 	ctpm_Barrier();
 	ctpm_Finalize();
 	MPI_Finalize();
-
-	pthread_cond_destroy(&cond);
-	pthread_mutex_destroy(&mutex);
 
 	pthread_exit(NULL);
 }
