@@ -678,10 +678,12 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Timer & bw thread section*/
-	ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
-	if (ret != 0) {
-		printf("couldn't create thread for timer %i\n", i);
-		pthread_exit(NULL); /* a more robust exit would be nice here */
+	if (myid < numprocs){
+		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
+		if (ret != 0) {
+			printf("couldn't create thread for timer %i\n", i);
+			pthread_exit(NULL); /* a more robust exit would be nice here */
+		}
 	}
 	/* Bandwidth test */
 	//for (size = MAX_MSG_SIZE / 2; size <= MAX_MSG_SIZE; size *= 2) {
