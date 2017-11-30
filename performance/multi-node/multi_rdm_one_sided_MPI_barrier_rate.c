@@ -719,9 +719,10 @@ int main(int argc, char *argv[]) {
 
 		ctpm_Barrier();
 
-		int rc = MPI_Barrier(MPI_COMM_WORLD);
-		assert(rc == MPI_SUCCESS);
+		ret = MPI_Barrier(MPI_COMM_WORLD);
+		assert(ret == MPI_SUCCESS);
 		/* Timer & bw thread section*/
+		ret = pthread_mutex_lock(&mutex);
 		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
 		if (ret != 0) {
 			printf("couldn't create thread for timer %i\n", i);
@@ -775,6 +776,7 @@ int main(int argc, char *argv[]) {
 
 	}
 	transmission_done = 1;
+	ret = pthread_mutex_unlock(&mutex);
 	for (i = 0; i < tunables.threads; i++) {
 		fini_per_thread_data(&thread_data[i]);
 	}
