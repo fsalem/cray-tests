@@ -501,7 +501,7 @@ void *thread_fn(void *data) {
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
 	pthread_t comp_events_t;
-	uint64_t t_start = 0, t_end = 0, tot_sent;
+	uint64_t t_start = 0, t_end = 0;
 
 	it.data = data;
 	size = it.message_size;
@@ -512,7 +512,7 @@ void *thread_fn(void *data) {
 	ptd = &thread_data[it.thread_id];
 	ptd->bytes_sent = 0;
 	ptd->count_comp_events = 0;
-	ptd->target_comp_events = loop * window_size * (numprocs - (numprocs / 2));
+	ptd->target_comp_events = window_size * (numprocs - (numprocs / 2));
 
 	ct_tbarrier(&ptd->tbar);
 	int rc = MPI_Barrier(MPI_COMM_WORLD);
@@ -520,15 +520,15 @@ void *thread_fn(void *data) {
 	t_start = get_time_usec();
 
 	if ((myid < (numprocs / 2))) {
-		/* completion events thread*/
-		rc = pthread_create(&comp_events_t, NULL, check_completion, data);
-		if (rc != 0) {
-			printf("couldn't create thread for timer %i\n", i);
-			pthread_exit(NULL); /* a more robust exit would be nice here */
-		}
 		//peer = 1;
 	    uint64_t write_count = 0;
 	    for (i = 0; i < loop; i++) {
+	    	/* completion events thread*/
+			rc = pthread_create(&comp_events_t, NULL, check_completion, data);
+			if (rc != 0) {
+				printf("couldn't create thread for timer %i\n", i);
+				pthread_exit(NULL); /* a more robust exit would be nice here */
+			}
 			write_count = 0;
 			for (j = 0; j < window_size; j++) {
 				peer = (numprocs / 2);
@@ -542,10 +542,8 @@ void *thread_fn(void *data) {
 					peer++;
 				}
 			}
-			tot_sent = write_count + (write_count*loop);
-			while (ptd->count_comp_events < (tot_sent*3/4));
+			pthread_join(comp_events_t, NULL);
 	    }
-		pthread_join(comp_events_t, NULL);
 	}
 	ct_tbarrier(&ptd->tbar);
 	rc = MPI_Barrier(MPI_COMM_WORLD);
