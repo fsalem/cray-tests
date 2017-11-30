@@ -495,8 +495,9 @@ void *check_completion(void *data) {
 		return (void *) -EINVAL;
 
 	ptd = &thread_data[it.thread_id];
-
-	while (ptd->count_comp_events < ptd->target_comp_events){
+	wait_for_comp(ptd->scq,ptd->target_comp_events);
+	total_bytes_sent += ptd->target_comp_events * it.message_size;
+	/*while (ptd->count_comp_events < ptd->target_comp_events){
 		remain_events = (ptd->target_comp_events-ptd->count_comp_events);
 		if (0){
 			fprintf(stdout, "[%03d]\t count= %d\t target= %d\t remaining = %d\n", myid, ptd->count_comp_events, ptd->target_comp_events, remain_events);
@@ -509,7 +510,7 @@ void *check_completion(void *data) {
 		}else{
 			usleep(100);
 		}
-	}
+	}*/
 	return NULL;
 }
 
@@ -543,11 +544,11 @@ void *thread_fn(void *data) {
 	    uint64_t write_count = 0;
 	    for (i = 0; i < loop; i++) {
 	    	/* completion events thread*/
-			/*rc = pthread_create(&comp_events_t, NULL, check_completion, data);
+			rc = pthread_create(&comp_events_t, NULL, check_completion, data);
 			if (rc != 0) {
 				printf("couldn't create thread for timer %i\n", i);
 				pthread_exit(NULL);
-			}*/
+			}
 			write_count = 0;
 			for (j = 0; j < window_size; j++) {
 				peer = (numprocs / 2);
@@ -561,9 +562,8 @@ void *thread_fn(void *data) {
 					peer++;
 				}
 			}
-			wait_for_comp(ptd->scq,write_count);
-			total_bytes_sent += write_count * size;
-			//pthread_join(comp_events_t, NULL);
+			pthread_join(comp_events_t, NULL);
+			ptd->count_comp_events = 0;
 	    }
 	}
 	ct_tbarrier(&ptd->tbar);
