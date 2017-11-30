@@ -199,7 +199,7 @@ static void cq_readerr(struct fid_cq *cq, const char *cq_str) {
 /*
  * fi_cq_err_entry can be cast to any CQ entry format.
  */
-static int wait_for_comp(struct fid_cq *cq, int num_completions) {
+/*static int wait_for_comp(struct fid_cq *cq, int num_completions) {
 	struct fi_cq_err_entry comp[num_completions];
 
 	int ret = fi_cq_read(cq, &comp, num_completions);
@@ -213,6 +213,25 @@ static int wait_for_comp(struct fid_cq *cq, int num_completions) {
 		}
 	}
 	return 0;
+}*/
+static int wait_for_comp(struct fid_cq *cq, int num_completions) {
+	struct fi_cq_err_entry comp;
+	int ret;
+
+	while (num_completions > 0) {
+		ret = fi_cq_read(cq, &comp, 1);
+		if (ret > 0) {
+			num_completions--;
+		} else if (ret < 0 && ret != -FI_EAGAIN) {
+			if (ret == -FI_EAVAIL) {
+				cq_readerr(cq, "cq");
+			} else {
+				ct_print_fi_error("fi_cq_read", ret);
+			}
+			return ret;
+		}
+	}
+	return num_completions;
 }
 
 static void free_ep_res(struct per_thread_data *ptd) {
@@ -524,11 +543,11 @@ void *thread_fn(void *data) {
 	    uint64_t write_count = 0;
 	    for (i = 0; i < loop; i++) {
 	    	/* completion events thread*/
-			rc = pthread_create(&comp_events_t, NULL, check_completion, data);
+			/*rc = pthread_create(&comp_events_t, NULL, check_completion, data);
 			if (rc != 0) {
 				printf("couldn't create thread for timer %i\n", i);
-				pthread_exit(NULL); /* a more robust exit would be nice here */
-			}
+				pthread_exit(NULL);
+			}*/
 			write_count = 0;
 			for (j = 0; j < window_size; j++) {
 				peer = (numprocs / 2);
@@ -542,7 +561,9 @@ void *thread_fn(void *data) {
 					peer++;
 				}
 			}
-			pthread_join(comp_events_t, NULL);
+			wait_for_comp(ptd->scq,write_count);
+			total_bytes_sent += write_count * size;
+			//pthread_join(comp_events_t, NULL);
 	    }
 	}
 	ct_tbarrier(&ptd->tbar);
