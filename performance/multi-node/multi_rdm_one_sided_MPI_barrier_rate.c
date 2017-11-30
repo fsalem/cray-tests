@@ -132,8 +132,8 @@ struct fid_domain *dom;
 static int thread_safe = 1;
 static uint64_t total_bytes_sent = 0;
 
-pthread_cond_t      cond  = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t     mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t      cond  = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t     mutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define WAIT_TIME_SECONDS       1
 
