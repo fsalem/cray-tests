@@ -146,14 +146,14 @@ void *timer(void *data){
 	struct tm * timeinfo;
 	uint64_t last_sent_bytes = 0;
 	uint64_t t_time;
-	uint64_t mbps;
+	double mbps;
 
 	t_time = get_time_usec();
     while(!transmission_done)
     {
     	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
-    	fprintf(stdout, "[%03d]\t tot=%d\t last=%d\t %*.*f\n", myid, total_bytes_sent, last_sent_bytes,
-    			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+    	//fprintf(stdout, "[%03d]\t tot=%d\t last=%d\t %*.*f\n", myid, total_bytes_sent, last_sent_bytes,
+    		//	FIELD_WIDTH, FLOAT_PRECISION, mbps);
     	last_sent_bytes = total_bytes_sent;
     	t_time = get_time_usec();
     	time ( &rawtime );
