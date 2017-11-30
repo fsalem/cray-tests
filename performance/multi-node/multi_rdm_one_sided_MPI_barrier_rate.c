@@ -479,6 +479,10 @@ void *check_completion(void *data) {
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
 		remain_events = (ptd->target_comp_events-ptd->count_comp_events);
+		if (0){
+			fprintf(stdout, "[%03d]\t count= %d\t target= %d\t remaining = %d\n", myid, ptd->count_comp_events, ptd->target_comp_events, remain_events);
+			fflush(stdout);
+		}
 		rc = wait_for_comp(ptd->scq, (remain_events > MAX_COMP_EVENT) ? MAX_COMP_EVENT : remain_events );
 		if (rc > 0){
 			ptd->count_comp_events += rc;
@@ -686,7 +690,7 @@ int main(int argc, char *argv[]) {
 		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
 		if (ret != 0) {
 			printf("couldn't create thread for timer %i\n", i);
-			pthread_exit(NULL); /* a more robust exit would be nice here */
+			pthread_exit(NULL);
 		}
 	}
 	/* Bandwidth test */
