@@ -52,6 +52,7 @@
 #include "ct_utils.h"
 #include "ct_tbarrier.h"
 
+#define MAX_COMP_EVENT 1000
 #define MAX_ALIGNMENT 65536
 #define MAX_MSG_SIZE (1<<22)
 #define MYBUFSIZE (MAX_MSG_SIZE + MAX_ALIGNMENT)
@@ -64,6 +65,8 @@
 #ifndef FLOAT_PRECISION
 #   define FLOAT_PRECISION 2
 #endif
+
+
 
 int loop = 20;
 int window_size = 64;
@@ -476,12 +479,13 @@ void *check_completion(void *data) {
 
 	while (ptd->count_comp_events < ptd->target_comp_events){
 		remain_events = (ptd->target_comp_events-ptd->count_comp_events);
-		rc = wait_for_comp(ptd->scq, (remain_events > loop) ? (remain_events/loop) : remain_events );
+		rc = wait_for_comp(ptd->scq, (remain_events > MAX_COMP_EVENT) ? MAX_COMP_EVENT : remain_events );
 		if (rc > 0){
 			ptd->count_comp_events += rc;
 			total_bytes_sent += rc * it.message_size;
+		}else{
+			usleep(100);
 		}
-		usleep(100);
 	}
 	return NULL;
 }
