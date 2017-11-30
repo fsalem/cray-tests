@@ -134,6 +134,7 @@ struct fid_fabric *fab;
 struct fid_domain *dom;
 static int thread_safe = 1;
 static uint64_t total_bytes_sent = 0;
+static uint64_t current_message_size;
 
 int myid, numprocs;
 
@@ -150,10 +151,6 @@ void *timer(void *data){
 	uint64_t last_sent_bytes = 0;
 	double mbps;
 
-	struct per_iteration_data it;
-
-	it.data = data;
-
     while(!transmission_done)
     {
     	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
@@ -163,7 +160,7 @@ void *timer(void *data){
     	time ( &rawtime );
 		timeinfo = localtime ( &rawtime );
     	fprintf(stdout, "[%03d]\t%02d:%02d:%02d\t%09d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
-			it.message_size, FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			current_message_size, FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
         sleep(1);
     }
@@ -500,6 +497,7 @@ void *thread_fn(void *data) {
 
 	it.data = data;
 	size = it.message_size;
+	current_message_size = it.message_size;
 
 	if (it.thread_id >= tunables.threads)
 		return (void *) -EINVAL;
