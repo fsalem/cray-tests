@@ -175,6 +175,13 @@ void *timer(void *data){
 		ts.tv_nsec = tp.tv_usec * 1000;
 		ts.tv_sec += WAIT_TIME_SECONDS;
 		rc = pthread_cond_timedwait(&cond, &mutex, &ts);
+		if (rc == ETIMEDOUT){
+			fprintf(stdout, "[%03d]\t timeout \n", myid);
+			fflush(stdout);
+		}else{
+			fprintf(stdout, "[%03d]\t NOT timeout \n", myid);
+			fflush(stdout);
+		}
     }
 
     return 0;
@@ -791,6 +798,9 @@ int main(int argc, char *argv[]) {
 	ctpm_Barrier();
 	ctpm_Finalize();
 	MPI_Finalize();
+
+	pthread_cond_destroy(&cond);
+	pthread_mutex_destroy(&mutex);
 
 	pthread_exit(NULL);
 }
