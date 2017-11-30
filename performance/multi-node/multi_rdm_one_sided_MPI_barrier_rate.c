@@ -492,7 +492,7 @@ void *thread_fn(void *data) {
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
 	pthread_t comp_events_t;
-	uint64_t t_start = 0, t_end = 0;
+	uint64_t t_start = 0, t_end = 0, remain_events;
 
 	it.data = data;
 	size = it.message_size;
@@ -502,7 +502,6 @@ void *thread_fn(void *data) {
 
 	ptd = &thread_data[it.thread_id];
 	ptd->bytes_sent = 0;
-	ptd->count_comp_events = 0;
 	ptd->target_comp_events = window_size * (numprocs - (numprocs / 2));
 
 	ct_tbarrier(&ptd->tbar);
@@ -514,13 +513,14 @@ void *thread_fn(void *data) {
 		//peer = 1;
 	    uint64_t write_count = 0;
 	    for (i = 0; i < loop; i++) {
-	    	/* completion events thread*/
+	    	/* completion events thread
 			rc = pthread_create(&comp_events_t, NULL, check_completion, data);
 			if (rc != 0) {
 				printf("couldn't create thread for timer %i\n", i);
 				pthread_exit(NULL);
-			}
+			}*/
 			write_count = 0;
+			ptd->count_comp_events = 0;
 			for (j = 0; j < window_size; j++) {
 				peer = (numprocs / 2);
 				while (peer < numprocs) {
@@ -532,9 +532,18 @@ void *thread_fn(void *data) {
 					ptd->bytes_sent += size;
 					peer++;
 				}
+				remain_events = (write_count + (write_count * j)) - ptd->count_comp_events;
+				rc = wait_for_comp(ptd->scq,remain_events > 1000 ? 1000 :remain_events);
+				ptd->count_comp_events += rc;
+				total_bytes_sent += rc * size;
 			}
-			pthread_join(comp_events_t, NULL);
-			ptd->count_comp_events = 0;
+			remain_events = ptd->target_comp_events - ptd->count_comp_events;
+			while (remain_events > 0){
+				rc = wait_for_comp(ptd->scq,remain_events > 1000 ? 1000 :remain_events);
+				remain_events -= rc;
+				total_bytes_sent += rc * size;
+			}
+			//pthread_join(comp_events_t, NULL);
 	    }
 	}
 	ct_tbarrier(&ptd->tbar);
