@@ -678,7 +678,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Timer & bw thread section*/
-	if (myid < numprocs){
+	if (myid < (numprocs/2)){
 		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
 		if (ret != 0) {
 			printf("couldn't create thread for timer %i\n", i);
