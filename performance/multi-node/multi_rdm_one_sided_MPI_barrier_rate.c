@@ -152,6 +152,8 @@ void *timer(void *data){
     while(!transmission_done)
     {
     	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
+    	fprintf(stdout, "[%03d]\t tot=%d\t last=%d\t %*.*f\n", myid, total_bytes_sent, last_sent_bytes,
+    			FIELD_WIDTH, FLOAT_PRECISION, mbps);
     	last_sent_bytes = total_bytes_sent;
     	t_time = get_time_usec();
     	time ( &rawtime );
