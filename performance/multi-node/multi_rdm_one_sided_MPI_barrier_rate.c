@@ -150,6 +150,10 @@ void *timer(void *data){
 	uint64_t last_sent_bytes = 0;
 	double mbps;
 
+	struct per_iteration_data it;
+
+	it.data = data;
+
     while(!transmission_done)
     {
     	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
@@ -158,8 +162,8 @@ void *timer(void *data){
     	last_sent_bytes = total_bytes_sent;
     	time ( &rawtime );
 		timeinfo = localtime ( &rawtime );
-    	fprintf(stdout, "[%03d]\t%02d:%02d:%02d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
-			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+    	fprintf(stdout, "[%03d]\t%02d:%02d:%02d\t%09d\t%*.*f\n", myid, timeinfo->tm_hour,timeinfo->tm_min, timeinfo->tm_sec,
+			it.message_size, FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
         sleep(1);
     }
@@ -737,7 +741,7 @@ int main(int argc, char *argv[]) {
 			pthread_join(thread_data[i].thread, NULL);
 
 		ctpm_Barrier();
-		if (myid == 0) {
+		/*if (myid == 0) {
 			min_lat = max_lat = sum_lat = thread_data[0].latency;
 			bytes_sent = thread_data[0].bytes_sent;
 			time_start = thread_data[0].time_start;
@@ -766,7 +770,7 @@ int main(int argc, char *argv[]) {
 			fprintf(stdout, "%d\t%*.*f\n", size,
 			FIELD_WIDTH, FLOAT_PRECISION, mbps);
 			fflush(stdout);
-		}
+		}*/
 
 	}
 	transmission_done = 1;
