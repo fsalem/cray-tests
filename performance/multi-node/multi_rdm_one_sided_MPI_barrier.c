@@ -464,20 +464,20 @@ void *thread_fn(void *data) {
 		//peer = 1;
 	    uint64_t write_count = 0;
 	    for (i = 0; i < loop; i++) {
-		write_count = 0;
-		for (j = 0; j < window_size; j++) {
-			peer = (numprocs / 2);
-			while (peer < numprocs) {
-				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
-						ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
-						ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
-				assert(fi_rc==FI_SUCCESS);
-				write_count++;
-				ptd->bytes_sent += size;
-				peer++;
+			write_count = 0;
+			for (j = 0; j < window_size; j++) {
+				peer = (numprocs / 2);
+				while (peer < numprocs) {
+					fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
+							ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
+							ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
+					assert(fi_rc==FI_SUCCESS);
+					write_count++;
+					ptd->bytes_sent += size;
+					peer++;
+				}
 			}
-		}
-		wait_for_comp(ptd->scq, write_count);
+			wait_for_comp(ptd->scq, write_count);
 
 	    }
 	    loops = loop * write_count;
