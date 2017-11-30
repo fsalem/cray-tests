@@ -199,7 +199,7 @@ static void cq_readerr(struct fid_cq *cq, const char *cq_str) {
 /*
  * fi_cq_err_entry can be cast to any CQ entry format.
  */
-/*static int wait_for_comp(struct fid_cq *cq, int num_completions) {
+static int wait_for_comp(struct fid_cq *cq, int num_completions) {
 	struct fi_cq_err_entry comp[num_completions];
 
 	int ret = fi_cq_read(cq, &comp, num_completions);
@@ -213,25 +213,6 @@ static void cq_readerr(struct fid_cq *cq, const char *cq_str) {
 		}
 	}
 	return 0;
-}*/
-static int wait_for_comp(struct fid_cq *cq, int num_completions) {
-	struct fi_cq_err_entry comp;
-	int ret;
-
-	while (num_completions > 0) {
-		ret = fi_cq_read(cq, &comp, 1);
-		if (ret > 0) {
-			num_completions--;
-		} else if (ret < 0 && ret != -FI_EAGAIN) {
-			if (ret == -FI_EAVAIL) {
-				cq_readerr(cq, "cq");
-			} else {
-				ct_print_fi_error("fi_cq_read", ret);
-			}
-			return ret;
-		}
-	}
-	return num_completions;
 }
 
 static void free_ep_res(struct per_thread_data *ptd) {
@@ -495,22 +476,12 @@ void *check_completion(void *data) {
 		return (void *) -EINVAL;
 
 	ptd = &thread_data[it.thread_id];
-	wait_for_comp(ptd->scq,ptd->target_comp_events);
-	total_bytes_sent += ptd->target_comp_events * it.message_size;
-	/*while (ptd->count_comp_events < ptd->target_comp_events){
-		remain_events = (ptd->target_comp_events-ptd->count_comp_events);
-		if (0){
-			fprintf(stdout, "[%03d]\t count= %d\t target= %d\t remaining = %d\n", myid, ptd->count_comp_events, ptd->target_comp_events, remain_events);
-			fflush(stdout);
-		}
-		rc = wait_for_comp(ptd->scq, (remain_events > MAX_COMP_EVENT) ? MAX_COMP_EVENT : remain_events );
-		if (rc > 0){
-			ptd->count_comp_events += rc;
-			total_bytes_sent += rc * it.message_size;
-		}else{
-			usleep(100);
-		}
-	}*/
+	remain_events = ptd->target_comp_events;
+	while (remain_events > 0){
+		rc = wait_for_comp(ptd->scq,remain_events > 100 ? 100 :remain_events);
+		remain_events -= rc;
+		total_bytes_sent += ptd->target_comp_events * it.message_size;
+	}
 	return NULL;
 }
 
