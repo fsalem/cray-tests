@@ -501,7 +501,7 @@ void *thread_fn(void *data) {
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
 	pthread_t comp_events_t;
-	uint64_t t_start = 0, t_end = 0;
+	uint64_t t_start = 0, t_end = 0, tot_sent;
 
 	it.data = data;
 	size = it.message_size;
@@ -542,6 +542,8 @@ void *thread_fn(void *data) {
 					peer++;
 				}
 			}
+			tot_sent = write_count + (write_count*loop);
+			while (ptd->count_comp_events < (tot_sent*3/4));
 	    }
 		pthread_join(comp_events_t, NULL);
 	}
