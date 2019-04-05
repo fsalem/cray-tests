@@ -151,7 +151,7 @@ void *timer(void *data){
 	uint64_t last_sent_bytes = 0;
 	double mbps;
 
-    while(!transmission_done)
+    /*while(!transmission_done)
     {
     	mbps = (((total_bytes_sent - last_sent_bytes) * 1.0) / (1024. * 1024.));
     	//fprintf(stdout, "[%03d]\t tot=%d\t last=%d\t %*.*f\n", myid, total_bytes_sent, last_sent_bytes,
@@ -163,7 +163,7 @@ void *timer(void *data){
 			current_message_size, FIELD_WIDTH, FLOAT_PRECISION, mbps);
 		fflush(stdout);
         sleep(1);
-    }
+    }*/
 
     return 0;
 }
@@ -548,12 +548,13 @@ void *thread_fn(void *data) {
 			//pthread_join(comp_events_t, NULL);
 	    }
 	}
+	t_end = get_time_usec();
 	ct_tbarrier(&ptd->tbar);
 	rc = MPI_Barrier(MPI_COMM_WORLD);
 	assert(rc == MPI_SUCCESS);
-	t_end = get_time_usec();
+	//t_end = get_time_usec();
 
-	ptd->latency = (t_end - t_start) / (double) (ptd->target_comp_events);
+	ptd->latency = (t_end - t_start) / (double) (loop * window_size);
 	ptd->time_start = t_start;
 	ptd->time_end = t_end;
 
@@ -680,11 +681,12 @@ int main(int argc, char *argv[]) {
 
 	if (myid == 0) {
 		fprintf(stdout, HEADER);
-		fprintf(stdout, "%-*s%*s%*s%*s%*s\n", 10, "# Size",
+		fprintf(stdout, "%-*s%*s%*s%*s%*s%*s\n", 10, "# Size",
 		FIELD_WIDTH, "Bandwidth (MB/s)",
 		FIELD_WIDTH, "Latency (us)",
 		FIELD_WIDTH, "Min Lat (us)",
-		FIELD_WIDTH, "Max Lat (us)");
+		FIELD_WIDTH, "Max Lat (us)",
+		FIELD_WIDTH, "Rank");
 		fflush(stdout);
 	}
 
@@ -739,7 +741,7 @@ int main(int argc, char *argv[]) {
 			pthread_join(thread_data[i].thread, NULL);
 
 		ctpm_Barrier();
-		/*if (myid == 0) {
+		if (myid < (numprocs / 2)) {
 			min_lat = max_lat = sum_lat = thread_data[0].latency;
 			bytes_sent = thread_data[0].bytes_sent;
 			time_start = thread_data[0].time_start;
@@ -765,10 +767,17 @@ int main(int argc, char *argv[]) {
 			mbps = ((bytes_sent * 1.0) / (1024. * 1024.))
 					/ ((time_end - time_start) / (1.0 * 1e6));
 
-			fprintf(stdout, "%d\t%*.*f\n", size,
-			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			/*fprintf(stdout, "%d\t%*.*f\n", size,
+			FIELD_WIDTH, FLOAT_PRECISION, mbps);*/
+			fprintf(stdout, "%-*d%*.*f%*.*f%*.*f%*.*f%*d\n", 10, size,
+                                FIELD_WIDTH, FLOAT_PRECISION, mbps,
+                                FIELD_WIDTH, FLOAT_PRECISION,
+                                sum_lat / tunables.threads,
+                                FIELD_WIDTH, FLOAT_PRECISION, min_lat,
+                                FIELD_WIDTH, FLOAT_PRECISION, max_lat,
+				FIELD_WIDTH, myid);
 			fflush(stdout);
-		}*/
+		}
 
 	}
 	transmission_done = 1;
