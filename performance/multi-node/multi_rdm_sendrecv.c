@@ -50,6 +50,7 @@
 #include <mpi.h>
 
 #include "ct_utils.h"
+#include "ct_tbarrier.h"
 
 #define MAX_COMP_EVENT 1000
 #define MAX_ALIGNMENT 65536
