@@ -55,7 +55,7 @@
 #define MAX_COMP_EVENT 1000
 #define MAX_ALIGNMENT 65536
 /* #define MAX_MSG_SIZE (1<<22) */
-#define MAX_MSG_SIZE (8*1024) /* Current GNI provider max send size */
+#define MAX_MSG_SIZE (4*1024*1024) /* Current GNI provider max send size */
 #define MYBUFSIZE (MAX_MSG_SIZE + MAX_ALIGNMENT)
 
 #define TEST_DESC "Libfabric Latency Test"
@@ -429,25 +429,17 @@ void *thread_fn(void *data)
 	int i, peer;
 	int size;
 	ssize_t __attribute__((unused))  fi_rc;
+	uint64_t t_start = 0, t_end = 0;
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
-	uint64_t t_start = 0, t_end = 0, remain_events;
 
 	it.data = data;
 	size = it.message_size;
-	current_message_size = it.message_size;
 
 	if (it.thread_id >= tunables.threads)
 		return (void *)-EINVAL;
 
 	ptd = &thread_data[it.thread_id];
-	ptd->bytes_sent = 0;
-	ptd->target_comp_events = loop * (numprocs - (numprocs / 2));
-
-	ct_tbarrier(&ptd->tbar);
-	int rc = MPI_Barrier(MPI_COMM_WORLD);
-	assert(rc == MPI_SUCCESS);
-	t_start = get_time_usec();
 
 #ifdef THREAD_SYNC
 	if (!it.thread_id)
@@ -455,69 +447,46 @@ void *thread_fn(void *data)
 	pthread_barrier_wait(&barr);
 #endif
 
-	if ((myid < (numprocs / 2))) {
-	    uint64_t send_count = 0;
-	    for (i = 0; i < loop; i++) {
-			ptd->count_comp_events = 0;
+	if (myid == 0) {
+		peer = 1;
+		for (i = 0; i < loop + skip; i++) {
+			if (i == skip)
+				t_start = get_time_usec();
 
-			peer = (numprocs / 2);
-			while (peer < numprocs) {
-				fi_rc = fi_tsend(ptd->ep, ptd->s_buf, size, NULL,
-						ptd->fi_addrs[peer], 0xDEADBEEF, NULL);
-				assert(!fi_rc);
-				send_count++;
-				ptd->bytes_sent += size;
-				peer++;
-			}
-			remain_events = send_count - ptd->count_comp_events;
-			rc = wait_for_comp(ptd->scq,remain_events > 1000 ? 1000 :remain_events);
-			ptd->count_comp_events += rc;
-			total_bytes_sent += rc * size;
-	    }
-	    remain_events = ptd->target_comp_events - ptd->count_comp_events;
-		while (remain_events > 0){
-			rc = wait_for_comp(ptd->scq,remain_events > 1000 ? 1000 :remain_events);
-			remain_events -= rc;
-			total_bytes_sent += rc * size;
-		}
-	}else{
-		uint64_t recv_count = 0;
-		for (i = 0; i < loop; i++) {
-			ptd->count_comp_events = 0;
+			fi_rc = fi_tsend(ptd->ep, ptd->s_buf, size, NULL,
+					ptd->fi_addrs[peer], 0xDEADBEEF, NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
 
-			int end_peer = (numprocs / 2);
-			peer = 0;
-			while (peer < end_peer) {
-				fi_rc = fi_trecv(ptd->ep, ptd->r_buf, size, NULL,
-						ptd->fi_addrs[peer], 0xDEADBEEF, 0, NULL);
-				assert(!fi_rc);
-				recv_count++;
-				peer++;
-			}
-			remain_events = recv_count - ptd->count_comp_events;
-			rc = wait_for_comp(ptd->scq,remain_events > 1000 ? 1000 :remain_events);
-			ptd->count_comp_events += rc;
+			fi_rc = fi_trecv(ptd->ep, ptd->r_buf, size, NULL,
+					ptd->fi_addrs[peer], 0xDEADBEEF, 0, NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
 		}
-		remain_events = ptd->target_comp_events - ptd->count_comp_events;
-		while (remain_events > 0){
-			rc = wait_for_comp(ptd->scq,remain_events > 1000 ? 1000 :remain_events);
-			remain_events -= rc;
+
+		t_end = get_time_usec();
+	} else if (myid == 1) {
+		peer = 0;
+		for (i = 0; i < loop + skip; i++) {
+			fi_rc = fi_trecv(ptd->ep, ptd->r_buf, size, NULL,
+					ptd->fi_addrs[peer], 0xDEADBEEF, 0, NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->rcq, 1);
+
+			fi_rc = fi_tsend(ptd->ep, ptd->s_buf, size, NULL,
+					ptd->fi_addrs[peer], 0xDEADBEEF, NULL);
+			assert(!fi_rc);
+			wait_for_comp(ptd->scq, 1);
 		}
 	}
-	t_end = get_time_usec();
-	ct_tbarrier(&ptd->tbar);
-	rc = MPI_Barrier(MPI_COMM_WORLD);
-	assert(rc == MPI_SUCCESS);
-
-	ptd->latency = (t_end - t_start) / (double) (loop);
-	ptd->time_start = t_start;
-	ptd->time_end = t_end;
 
 #ifdef THREAD_SYNC
 	if (!it.thread_id)
 		ctpm_Barrier();
 	pthread_barrier_wait(&barr);
 #endif
+
+	ptd->latency = (t_end - t_start) / (2.0 * loop);
 
 	return NULL;
 }
