@@ -478,8 +478,8 @@ void *thread_fn(void *data)
 			uint64_t send_count = 0;
 			peer = (numprocs / 2);
 			while (peer < numprocs) {
-				fi_rc = fi_send(ptd->ep, ptd->s_buf, size, NULL,
-						ptd->fi_addrs[peer], NULL);
+				fi_rc = fi_tsend(ptd->ep, ptd->s_buf, size, NULL,
+						ptd->fi_addrs[peer], 0xDEADBEEF, NULL);
 				assert(!fi_rc);
 				wait_for_comp_sync(ptd->scq, 1);
 				send_count++;
@@ -501,8 +501,8 @@ void *thread_fn(void *data)
 			int end_peer = (numprocs / 2);
 			peer = 0;
 			while (peer < end_peer) {
-				fi_rc = fi_recv(ptd->ep, ptd->r_buf, size, NULL,
-						ptd->fi_addrs[peer], NULL);
+				fi_rc = fi_trecv(ptd->ep, ptd->r_buf, size, NULL,
+						ptd->fi_addrs[peer], 0xDEADBEEF, 0, NULL);;
 				assert(!fi_rc);
 				wait_for_comp_sync(ptd->rcq, 1);
 				recv_count++;
