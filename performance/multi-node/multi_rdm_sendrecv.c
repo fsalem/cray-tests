@@ -636,15 +636,6 @@ int main(int argc, char *argv[])
 		fflush(stdout);
 	}
 
-	/* Timer & bw thread section*/
-	if (myid < (numprocs/2)){
-		ret = pthread_create(&timer_thread, NULL, timer,iter_key.data);
-		if (ret != 0) {
-			printf("couldn't create thread for timer %i\n", i);
-			pthread_exit(NULL);
-		}
-	}
-
 	for (size = 1; size <= MAX_MSG_SIZE; size = (size ? size * 2 : 1)) {
 		for (i = 0; i < tunables.threads; i++) {
 			ptd = &thread_data[i];
