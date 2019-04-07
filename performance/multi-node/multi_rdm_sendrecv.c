@@ -428,7 +428,6 @@ void *thread_fn(void *data)
 	int i, peer;
 	int size;
 	ssize_t __attribute__((unused))  fi_rc;
-	uint64_t t_start = 0, t_end = 0;
 	struct per_thread_data *ptd;
 	struct per_iteration_data it;
 	uint64_t t_start = 0, t_end = 0, remain_events;
