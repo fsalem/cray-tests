@@ -50,7 +50,6 @@
 #include <mpi.h>
 
 #include "ct_utils.h"
-#include "ct_tbarrier.h"
 
 #define MAX_COMP_EVENT 1000
 #define MAX_ALIGNMENT 65536
@@ -98,7 +97,6 @@ struct per_thread_data {
 	uint64_t target_comp_events;
 	uint64_t time_start;
 	uint64_t time_end;
-	fabtests_tbar_t tbar;
 };
 
 struct per_iteration_data {
@@ -465,7 +463,6 @@ void *thread_fn(void *data)
 	ptd->bytes_sent = 0;
 	ptd->target_comp_events = loop * (numprocs - (numprocs / 2));
 
-	ct_tbarrier(&ptd->tbar);
 	int rc = MPI_Barrier(MPI_COMM_WORLD);
 	assert(rc == MPI_SUCCESS);
 	t_start = get_time_usec();
@@ -521,7 +518,6 @@ void *thread_fn(void *data)
 		}
 	}
 	t_end = get_time_usec();
-	ct_tbarrier(&ptd->tbar);
 	rc = MPI_Barrier(MPI_COMM_WORLD);
 	assert(rc == MPI_SUCCESS);
 
