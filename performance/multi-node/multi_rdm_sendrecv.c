@@ -509,7 +509,7 @@ void *thread_fn(void *data)
 	rc = MPI_Barrier(MPI_COMM_WORLD);
 	assert(rc == MPI_SUCCESS);
 
-	ptd->latency = (t_end - t_start) / (double) (loop * window_size);
+	ptd->latency = (t_end - t_start) / (double) (loop);
 	ptd->time_start = t_start;
 	ptd->time_end = t_end;
 
