@@ -505,7 +505,7 @@ void *thread_fn(void *data)
 			peer = 0;
 			while (peer < end_peer) {
 				fi_rc = fi_recv(ptd->ep, ptd->r_buf, size, NULL,
-						ptd->fi_addrs[peer], 0, NULL);
+						ptd->fi_addrs[peer], NULL);
 				assert(!fi_rc);
 				wait_for_comp_sync(ptd->rcq, 1);
 				recv_count++;
