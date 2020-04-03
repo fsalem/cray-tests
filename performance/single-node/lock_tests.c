@@ -50,7 +50,7 @@
 #include "ct_print_utils.h"
 #include "ct_utils.h"
 
-static pthread_barrier_t barrier;
+/*static pthread_barrier_t barrier;*/
 static pthread_t *writers, *readers;
 static lock_t lock;
 
@@ -63,7 +63,7 @@ void *reader(void *arg)
 	int p;
 	volatile int tmp = 0;
 
-	pthread_barrier_wait(&barrier);
+	ctpm_Barrier();/*pthread_barrier_wait(&barrier);*/
 	ct_start_clock();
 
 	for (i = 0; i < nreads; i++) {
@@ -80,7 +80,7 @@ void *writer(void *arg)
 	unsigned nwrites = *(unsigned *) arg, i;
 	volatile int tmp = 0;
 
-	pthread_barrier_wait(&barrier);
+	ctpm_Barrier();/*pthread_barrier_wait(&barrier);*/
 	ct_start_clock();
 
 
@@ -111,7 +111,7 @@ void rwlock_test(unsigned nreaders, unsigned nreads_per_reader,
 	}
 
 	/* Ensure readers and writers wait until all threads are up */
-	pthread_barrier_init(&barrier, NULL, nreaders + nwriters);
+	ctpm_Barrier();/*pthread_barrier_init(&barrier, NULL, nreaders + nwriters);*/
 
 	/* spawn read threads */
 	for (i = 0; i < nreaders; i++) {

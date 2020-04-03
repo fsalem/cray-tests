@@ -125,7 +125,7 @@ struct per_iteration_data {
 	};
 };
 
-static pthread_barrier_t thread_barrier;
+/*static pthread_barrier_t thread_barrier;*/
 struct per_thread_data *thread_data;
 static pthread_t timer_thread;
 static int transmission_done = 0;
@@ -643,7 +643,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	pthread_barrier_init(&thread_barrier, NULL, tunables.threads);
+	ctpm_Barrier();/*pthread_barrier_init(&thread_barrier, NULL, tunables.threads);*/
 
 	hints->ep_attr->type = FI_EP_RDM;
 	hints->caps = FI_MSG | FI_DIRECTED_RECV | FI_RMA;
@@ -764,7 +764,7 @@ int main(int argc, char *argv[]) {
 					time_end = thread_data[i].time_end;
 			}
 
-			mbps = ((bytes_sent * 1.0) / (1024. * 1024.))
+			mbps = ((bytes_sent * 1.0) / (1000. * 1000.))
 					/ ((time_end - time_start) / (1.0 * 1e6));
 
 			/*fprintf(stdout, "%d\t%*.*f\n", size,

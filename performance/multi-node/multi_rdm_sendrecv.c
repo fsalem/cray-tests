@@ -109,7 +109,7 @@ struct per_iteration_data {
 	};
 };
 
-pthread_barrier_t barr;
+/*pthread_barrier_t barr;*/
 struct per_thread_data *thread_data;
 static pthread_t timer_thread;
 struct fi_info *fi, *hints;
@@ -470,7 +470,7 @@ void *thread_fn(void *data)
 #ifdef THREAD_SYNC
 	if (!it.thread_id)
 		ctpm_Barrier();
-	pthread_barrier_wait(&barr);
+	ctpm_Barrier();/*pthread_barrier_wait(&barr);*/
 #endif
 
 	if ((myid < (numprocs / 2))) {
@@ -528,7 +528,7 @@ void *thread_fn(void *data)
 #ifdef THREAD_SYNC
 	if (!it.thread_id)
 		ctpm_Barrier();
-	pthread_barrier_wait(&barr);
+	ctpm_Barrier();/*pthread_barrier_wait(&barr);*/
 #endif
 
 	return NULL;
@@ -635,7 +635,7 @@ int main(int argc, char *argv[])
 		init_per_thread_data(&thread_data[i]);
 	}
 
-	pthread_barrier_init(&barr, NULL, tunables.threads);
+	ctpm_Barrier();/*pthread_barrier_init(&barr, NULL, tunables.threads);*/
 
 	if (myid == 0) {
 		fprintf(stdout, HEADER);
