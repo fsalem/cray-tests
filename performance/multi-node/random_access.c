@@ -826,7 +826,7 @@ static int random_access(void)
 	}
 	/* distribute result to all nodes */
 	ctpm_Barrier();
-	ctpm_Bcast(local_gups_score, sizeof(double));
+	ctpm_Bcast(local_gups_score, sizeof(double), 0);
 	ctpm_Barrier();
 
 	/* Verification phase */
