@@ -121,7 +121,7 @@ struct per_iteration_data {
 	};
 };
 
-static pthread_barrier_t thread_barrier;
+/*static pthread_barrier_t thread_barrier;*/
 struct per_thread_data *thread_data;
 struct fi_info *fi, *hints;
 struct fid_fabric *fab;
@@ -654,7 +654,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	pthread_barrier_init(&thread_barrier, NULL, tunables.threads);
+	/*pthread_barrier_init(&thread_barrier, NULL, tunables.threads);*/
 
 	hints->ep_attr->type = FI_EP_RDM;
 	hints->caps = FI_MSG | FI_DIRECTED_RECV | FI_RMA;
