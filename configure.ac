@@ -8,13 +8,13 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 AC_CANONICAL_HOST
 
-case $host_os in
-*linux*)
-	;;
-*)
-	AC_MSG_ERROR([cray-tests only builds on Linux])
-	;;
-esac
+#case $host_os in
+#*linux*)
+#	;;
+#*)
+#	AC_MSG_ERROR([cray-tests only builds on Linux])
+#	;;
+#esac
 
 m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
 
@@ -31,7 +31,14 @@ AC_ARG_WITH([libfabric],
              CPPFLAGS="-I $withval/include $CPPFLAGS"
              LDFLAGS="-L$withval/$fab_libdir $LDFLAGS"],
             [])
-
+           
+AC_ARG_WITH([mpi],
+            AC_HELP_STRING([--with-mpi], [Use non-default mpi location - default NO]),
+            [AS_IF([test -d $withval/lib64], [mpi_libdir="lib64"], [mpi_libdir="lib"])
+             CPPFLAGS="-I $withval/include $CPPFLAGS"
+             LDFLAGS="-L$withval/$mpi_libdir $LDFLAGS"],
+            [])
+            
 dnl I think we'd rather just search for the pmi module
 AC_ARG_WITH([pmi],
             AC_HELP_STRING([--with-pmi], [Specify PMI location - default NO]),
