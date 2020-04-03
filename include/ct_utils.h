@@ -237,5 +237,5 @@ void ctpm_Finalize(void);
 void ctpm_Barrier(void);
 void ctpm_Job_size(int *);
 void ctpm_Allgather(void *src, size_t, void *dest);
-void ctpm_Bcast(void *, size_t);
+void ctpm_Bcast(void *, size_t, int);
 #endif /* CT_UTILS_H */
