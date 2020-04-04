@@ -47,6 +47,14 @@
 #include <stdatomic.h>
 
 #include <pthread.h>
+#include <ifaddrs.h>
+
+#include <errno.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "ct_utils.h"
 #include "ct_tbarrier.h"
@@ -99,7 +107,7 @@ struct per_thread_data {
 	char r_buf_original[MYBUFSIZE];
 	char *s_buf;
 	char *r_buf;
-	void *addrs;
+	void **addrs;
 	fi_addr_t *fi_addrs;
 	buf_desc_t *rbuf_descs;
 	double latency;
@@ -119,7 +127,7 @@ struct per_iteration_data {
 	};
 };
 
-static pthread_barrier_t thread_barrier;
+/*static pthread_barrier_t thread_barrier;*/
 struct per_thread_data *thread_data;
 struct fi_info *fi, *hints;
 struct fid_fabric *fab;
@@ -127,6 +135,7 @@ struct fid_domain *dom;
 static int thread_safe = 1;
 
 int myid, numprocs;
+char *IPbuffer;
 
 struct test_tunables {
 	int threads;
@@ -157,9 +166,9 @@ static void cq_readerr(struct fid_cq *cq, const char *cq_str) {
 	} else {
 		err_str = fi_cq_strerror(cq, cq_err.prov_errno, cq_err.err_data,
 		NULL, 0);
-		fprintf(stderr, "%s: %d %s\n", cq_str, cq_err.err,
+		fprintf(stderr, "[%d] %s: %d %s\n", myid, cq_str, cq_err.err,
 				fi_strerror(cq_err.err));
-		fprintf(stderr, "%s: prov_err: %s (%d)\n", cq_str, err_str,
+		fprintf(stderr, "[%d] %s: prov_err: %s (%d)\n", myid, cq_str, err_str,
 				cq_err.prov_errno);
 	}
 }
@@ -187,6 +196,26 @@ static int wait_for_comp(struct fid_cq *cq, int num_completions) {
 	return 0;
 }
 
+/*
+ * fi_cq_err_entry can be cast to any CQ entry format.
+ */
+static int swait_for_comp(struct fid_cq *cq, int num_completions) {
+	struct fi_cq_err_entry comp[num_completions];
+	int ret;
+
+	ret = fi_cq_read(cq, &comp, num_completions);
+	if (ret == -FI_EAGAIN) return 0;
+	if (ret < 0 && ret != -FI_EAGAIN) {
+		if (ret == -FI_EAVAIL) {
+			cq_readerr(cq, "cq");
+		} else {
+			ct_print_fi_error("fi_cq_read", ret);
+		}
+	}
+	//fprintf(stdout, "swait_for_comp required %d got %d \n", num_completions, ret);
+	return ret;
+}
+
 static void free_ep_res(struct per_thread_data *ptd) {
 	fi_close(&ptd->av->fid);
 	fi_close(&ptd->rcq->fid);
@@ -202,6 +231,9 @@ static int alloc_ep_res(struct per_thread_data *ptd) {
 	cq_attr.format = FI_CQ_FORMAT_CONTEXT;
 	cq_attr.wait_obj = FI_WAIT_NONE;
 	cq_attr.size = rx_depth;
+	cq_attr.flags = 0;
+	cq_attr.wait_cond = FI_CQ_COND_NONE;
+	cq_attr.wait_set = 0;
 
 	/* Open completion queue for send completions */
 	ret = fi_cq_open(dom, &cq_attr, &ptd->scq, NULL);
@@ -220,7 +252,7 @@ static int alloc_ep_res(struct per_thread_data *ptd) {
 	memset(&av_attr, 0, sizeof(av_attr));
 	av_attr.type =
 			fi->domain_attr->av_type ? fi->domain_attr->av_type : FI_AV_MAP;
-	av_attr.count = 2;
+	av_attr.count = numprocs;
 	av_attr.name = NULL;
 
 	/* Open address vector (AV) for mapping address */
@@ -272,14 +304,22 @@ static int bind_ep_res(struct per_thread_data *ptd) {
 
 static int init_fabric(void) {
 	int ret;
-	uint64_t flags = 0;
+	uint64_t flags = FI_SOURCE;
+	int port = 14195+myid;
+	char port_str[12];
 
+	sprintf(port_str, "%d", port);
 	/* Get fabric info */
-	ret = fi_getinfo(CT_FIVERSION, NULL, NULL, flags, hints, &fi);
+	ret = fi_getinfo(CT_FIVERSION, IPbuffer, port_str, flags, hints, &fi);
 	if (ret) {
 		ct_print_fi_error("fi_getinfo", ret);
 		return ret;
 	}
+	while (hints->fabric_attr->prov_name != NULL && fi != NULL){
+		if (strcmp(hints->fabric_attr->prov_name,fi->fabric_attr->prov_name) == 0)break;
+		fi = fi->next;
+	}
+	assert (fi != NULL);
 
 	/* Open fabric */
 	ret = fi_fabric(fi->fabric_attr, &fab, NULL);
@@ -290,8 +330,8 @@ static int init_fabric(void) {
 
 	if (!thread_safe) {
 		fi->domain_attr->threading = FI_THREAD_COMPLETION;
-		fi->domain_attr->data_progress = FI_PROGRESS_MANUAL;
-		fi->domain_attr->control_progress = FI_PROGRESS_MANUAL;
+		fi->domain_attr->data_progress = FI_PROGRESS_AUTO;
+		fi->domain_attr->control_progress = FI_PROGRESS_AUTO;
 	}
 
 	/* Open domain */
@@ -348,19 +388,15 @@ static int init_av(struct per_thread_data *ptd) {
 		ct_print_fi_error("fi_getname", ret);
 		return ret;
 	}
-
-	ptd->addrs = malloc(numprocs * addrlen);
-	assert(ptd->addrs);
+	assert(addr != NULL);
+	ptd->addrs = malloc(numprocs * sizeof(void*));
 
 	ctpm_Allgather(addr, addrlen, ptd->addrs);
-
-	ptd->fi_addrs = malloc(numprocs * sizeof(fi_addr_t));
-	assert(ptd->fi_addrs);
-
 	/* Insert address to the AV and get the fabric address back */
 	ret = fi_av_insert(ptd->av, ptd->addrs, numprocs, ptd->fi_addrs, 0,
 			&ptd->fi_ctx_av);
 	if (ret != numprocs) {
+		fprintf(stdout, "[%d] fi_av_insert failed ret%d\n", myid, ret);
 		ct_print_fi_error("fi_av_insert", ret);
 		return ret;
 	}
@@ -375,6 +411,7 @@ int init_per_thread_data(struct per_thread_data *ptd) {
 	int ret;
 	buf_desc_t lbuf_desc;
 
+	ptd->fi_addrs = malloc(numprocs * sizeof(fi_addr_t));
 	ret = init_endpoint(ptd);
 	if (ret) {
 		fprintf(stderr, "Problem in endpoint initialization\n");
@@ -396,7 +433,7 @@ int init_per_thread_data(struct per_thread_data *ptd) {
 	ptd->r_buf = (char *) (((unsigned long) ptd->r_buf_original
 			+ (align_size - 1)) / align_size * align_size);
 
-	ret = fi_mr_reg(dom, ptd->r_buf, MYBUFSIZE, FI_REMOTE_WRITE, 0, 0, 0,
+	ret = fi_mr_reg(dom, ptd->r_buf, MYBUFSIZE, FI_REMOTE_WRITE | FI_RECV | FI_SEND, 0, 0, 0,
 			&ptd->r_mr, NULL);
 	if (ret) {
 		ct_print_fi_error("fi_mr_reg", ret);
@@ -411,7 +448,7 @@ int init_per_thread_data(struct per_thread_data *ptd) {
 	/* Distribute memory keys */
 	ctpm_Allgather(&lbuf_desc, sizeof(lbuf_desc), ptd->rbuf_descs);
 
-	ret = fi_mr_reg(dom, ptd->s_buf, MYBUFSIZE, FI_WRITE, 0, 0, 0, &ptd->l_mr,
+	ret = fi_mr_reg(dom, ptd->s_buf, MYBUFSIZE, FI_WRITE | FI_RECV | FI_SEND, 0, 0, 0, &ptd->l_mr,
 	NULL);
 	if (ret) {
 		ct_print_fi_error("fi_mr_reg", ret);
@@ -453,43 +490,56 @@ void *thread_fn(void *data) {
 
 	ptd = &thread_data[it.thread_id];
 	ptd->bytes_sent = 0;
-
 	ct_tbarrier(&ptd->tbar);
+	ctpm_Barrier();
 
-	if ((myid < (numprocs / 2) && !two_sided_per_node)
-			|| (myid % 2 == 0 && two_sided_per_node)) {
-		//peer = 1;
-	    uint64_t write_count = 0;
+	if (((myid < (numprocs / 2) && !two_sided_per_node)
+			|| (myid % 2 == 0 && two_sided_per_node))) {
+	    uint64_t write_count = 0, remaining=0;
+	    j = 0;
 	    for (i = 0; i < loop + skip; i++) {
-		write_count = 0;
-		if (i == skip) {  //warm up loop
-			t_start = get_time_usec();
-			ptd->bytes_sent = 0;
-		}
-
-		for (j = 0; j < window_size; j++) {
-			if (two_sided_per_node) {
-				peer = 1;
-			} else {
-				peer = (numprocs / 2);
+			write_count = 0;
+			if (i == skip) {  //warm up loop
+				t_start = get_time_usec();
+				ptd->bytes_sent = 0;
 			}
-			while (peer < numprocs) {
-				fi_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
-						ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
-						ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
-				assert(fi_rc==FI_SUCCESS);
-				write_count++;
-				ptd->bytes_sent += size;
+
+			//for (j = 0; j < window_size; j++) {
 				if (two_sided_per_node) {
-					peer += 2;
+					peer = 1;
 				} else {
-					peer++;
+					peer = (numprocs / 2);
 				}
+				while (peer < numprocs) {
+					/*i_rc = fi_write(ptd->ep, ptd->s_buf, size, ptd->l_mr,
+							ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
+							ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);*/
+					fi_rc = fi_writedata(ptd->ep, ptd->s_buf, size, ptd->l_mr,
+							j, ptd->fi_addrs[peer], ptd->rbuf_descs[peer].addr,
+							ptd->rbuf_descs[peer].key, (void *) (intptr_t) j);
+					if (fi_rc != FI_SUCCESS){
+						ct_print_fi_error("fi_write", fi_rc);
+					}
+					assert(fi_rc==FI_SUCCESS);
+					write_count++;
+					remaining++;
+					ptd->bytes_sent += size;
+					if (two_sided_per_node) {
+						peer += 2;
+					} else {
+						peer++;
+					}
+					++j;
+				}
+			//}
+			if (remaining > 0)remaining -= swait_for_comp(ptd->scq, remaining);
+			assert (remaining >= 0);
+			if (remaining > 500){
+				wait_for_comp(ptd->scq, 100);
+				remaining -= 100;
 			}
-		}
-		wait_for_comp(ptd->scq, write_count);
-
 	    }
+	    wait_for_comp(ptd->scq, remaining);
 	    loops = loop * write_count;
 	    t_end = get_time_usec();
 	    if (two_sided_per_node) {
@@ -503,7 +553,7 @@ void *thread_fn(void *data) {
 		    assert(!fi_rc);
 		    wait_for_comp(ptd->scq, 1);
 
-		    fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+		    fi_rc = fi_recv(ptd->ep, ptd->r_buf, 4, NULL, ptd->fi_addrs[peer],
 		    NULL);
 		    assert(!fi_rc);
 		    wait_for_comp(ptd->rcq, 1);
@@ -517,9 +567,8 @@ void *thread_fn(void *data) {
 		int limit = (numprocs / 2);
 		if (two_sided_per_node)
 			limit = numprocs;
-		peer = 0;
 		for (peer = 0; peer < limit; peer = peer + 1 + two_sided_per_node) {
-			fi_rc = fi_recv(ptd->ep, ptd->s_buf, 4, NULL, ptd->fi_addrs[peer],
+			fi_rc = fi_recv(ptd->ep, ptd->r_buf, 4, NULL, ptd->fi_addrs[peer],
 			NULL);
 			assert(!fi_rc);
 			wait_for_comp(ptd->rcq, 1);
@@ -550,12 +599,30 @@ int main(int argc, char *argv[]) {
 	uint64_t bytes_sent;
 	double mbps;
 
+	char hostbuffer[256];
+	struct hostent *host_entry;
+	int hostname;
+
+	// To retrieve hostname
+	hostname = gethostname(hostbuffer, sizeof(hostbuffer));
+
+	// To retrieve host information
+	host_entry = gethostbyname(hostbuffer);
+
+	// To convert an Internet network
+	// address into ASCII string
+	IPbuffer = inet_ntoa(*((struct in_addr*)
+						   host_entry->h_addr_list[0]));
+
+	//printf("Host IP: %s\n", IPbuffer);
+
 	pthread_mutex_init(&mutex, NULL);
 	tunables.threads = 1;
 
 	ctpm_Init(&argc, &argv);
 	ctpm_Rank(&myid);
 	ctpm_Job_size(&numprocs);
+	//fprintf(stdout, "Socket Data : -%c\n",ip_addr->ifa_addr->sa_data);
 
 	hints = fi_allocinfo();
 	if (!hints) {
@@ -621,7 +688,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	pthread_barrier_init(&thread_barrier, NULL, tunables.threads);
+	ctpm_Barrier();/*pthread_barrier_init(&thread_barrier, NULL, tunables.threads);*/
 
 	hints->ep_attr->type = FI_EP_RDM;
 	hints->caps = FI_MSG | FI_DIRECTED_RECV | FI_RMA;
@@ -659,8 +726,9 @@ int main(int argc, char *argv[]) {
 
 	if (myid == 0) {
 		fprintf(stdout, HEADER);
-		fprintf(stdout, "%-*s%*s%*s%*s%*s\n", 10, "# Size",
+		fprintf(stdout, "%-*s%*s%*s%*s%*s%*s\n", 10, "# Size",
 		FIELD_WIDTH, "Bandwidth (MB/s)",
+		FIELD_WIDTH, "Size (MB)",
 		FIELD_WIDTH, "Latency (us)",
 		FIELD_WIDTH, "Min Lat (us)",
 		FIELD_WIDTH, "Max Lat (us)");
@@ -735,8 +803,10 @@ int main(int argc, char *argv[]) {
 			mbps = ((bytes_sent * 1.0) / (1024. * 1024.))
 					/ ((time_end - time_start) / (1.0 * 1e6));
 
-			fprintf(stdout, "%d\t%*.*f\n", size,
-			FIELD_WIDTH, FLOAT_PRECISION, mbps);
+			fprintf(stdout, "%d\t%*.*f\t%*.*f%*.*f\n", size,
+			FIELD_WIDTH, FLOAT_PRECISION, mbps,
+			FIELD_WIDTH, FLOAT_PRECISION,((bytes_sent * 1.0) / (1024. * 1024.)),
+			FIELD_WIDTH, FLOAT_PRECISION, (sum_lat/tunables.threads));
 			fflush(stdout);
 		}
 
@@ -756,7 +826,7 @@ int main(int argc, char *argv[]) {
 	ctpm_Barrier();
 	ctpm_Finalize();
 
-	pthread_exit(NULL);
+	// TODO pthread_exit(NULL);
 }
 
 /* vi:set sw=8 sts=8 */
